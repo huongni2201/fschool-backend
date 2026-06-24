@@ -63,7 +63,7 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public LoginResponse login(LoginCommand command) {
-        UserEntity user = userRepository.findByPhone(command.phone())
+        UserEntity user = userRepository.findByPhone(command.username())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Phone or password is invalid"));
         if (user.getStatus() != UserStatus.ACTIVE || !passwordService.matches(command.password(), user.getPasswordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Phone or password is invalid");

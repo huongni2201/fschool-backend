@@ -1,4 +1,25 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fschool-backend:local
+    container_name: fschool-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-fschool}
+      DB_USERNAME: ${POSTGRES_USER:-fschool}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fschool_password}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
   postgres:
     image: postgres:18
     container_name: fschool-postgres
@@ -11,7 +32,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fschool} -d ${POSTGRES_DB:-fschool}"]
       interval: 10s
@@ -26,7 +47,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@fschool.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@fschool.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin123}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
