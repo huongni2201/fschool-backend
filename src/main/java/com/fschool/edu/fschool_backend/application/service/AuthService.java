@@ -1,18 +1,12 @@
 package com.fschool.edu.fschool_backend.application.service;
 
-import com.fschool.edu.fschool_backend.presentation.dto.response.LoginResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.LoginUserResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.SendOtpResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpResponse;
 import com.fschool.edu.fschool_backend.application.command.LoginCommand;
+import com.fschool.edu.fschool_backend.application.command.RegisterCommand;
 import com.fschool.edu.fschool_backend.application.command.ResetPasswordCommand;
 import com.fschool.edu.fschool_backend.application.command.SendOtpCommand;
 import com.fschool.edu.fschool_backend.application.command.VerifyOtpCommand;
-import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
-import com.fschool.edu.fschool_backend.infrastructure.security.PasswordService;
-import com.fschool.edu.fschool_backend.infrastructure.security.ResetTokenService;
-import com.fschool.edu.fschool_backend.infrastructure.security.TokenService;
 import com.fschool.edu.fschool_backend.domain.enums.OtpPurpose;
+import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.domain.enums.UserStatus;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.OtpChallengeEntity;
@@ -20,6 +14,15 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEnt
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.OtpChallengeJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.security.PasswordService;
+import com.fschool.edu.fschool_backend.infrastructure.security.ResetTokenService;
+import com.fschool.edu.fschool_backend.infrastructure.security.TokenService;
+import com.fschool.edu.fschool_backend.presentation.dto.response.LoginResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.LoginUserResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.RegisterResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.SendOtpResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpResponse;
+import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -79,6 +82,38 @@ public class AuthService {
                 user.getRole(),
                 className);
         return new LoginResponse(accessToken, "Bearer", tokenService.accessTokenTtlSeconds(), loginUser);
+    }
+
+    @Transactional
+    public RegisterResponse register(RegisterCommand command) {
+        userRepository.findByPhone(command.phone())
+                .ifPresent(user -> {
+                    throw new ApiException(HttpStatus.CONFLICT, "Phone already exists");
+                });
+        userRepository.findByStudentCode(command.studentCode())
+                .ifPresent(user -> {
+                    throw new ApiException(HttpStatus.CONFLICT, "Student code already exists");
+                });
+        if (command.classId() != null && !classRepository.existsById(command.classId())) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Class was not found");
+        }
+
+        UserEntity user = new UserEntity();
+        user.setPhone(command.phone());
+        user.setPasswordHash(passwordService.encode(command.password()));
+        user.setStudentCode(command.studentCode());
+        user.setFullName(command.fullName());
+        user.setClassId(command.classId());
+        user.setDateOfBirth(command.dateOfBirth());
+        user.setGender(command.gender());
+        user.setAvatarUrl(command.avatarUrl());
+        user.setAddress(command.address());
+        user.setGuardianName(command.guardianName());
+        user.setGuardianPhone(command.guardianPhone());
+        user.setRole(UserRole.STUDENT);
+        user.setStatus(UserStatus.ACTIVE);
+
+        return toRegisterResponse(userRepository.save(user));
     }
 
     @Transactional
@@ -144,5 +179,22 @@ public class AuthService {
         } catch (Exception exception) {
             throw new IllegalStateException("Cannot hash value", exception);
         }
+    }
+
+    private RegisterResponse toRegisterResponse(UserEntity user) {
+        return new RegisterResponse(
+                user.getId(),
+                user.getPhone(),
+                user.getStudentCode(),
+                user.getFullName(),
+                user.getClassId(),
+                user.getDateOfBirth(),
+                user.getGender(),
+                user.getAvatarUrl(),
+                user.getAddress(),
+                user.getGuardianName(),
+                user.getGuardianPhone(),
+                user.getRole(),
+                user.getStatus());
     }
 }
