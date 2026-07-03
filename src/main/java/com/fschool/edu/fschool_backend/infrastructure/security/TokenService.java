@@ -48,19 +48,23 @@ public class TokenService {
         if (parts.length != 2) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
-        String payload = decode(parts[0]);
-        if (!sign(payload).equals(parts[1])) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid token signature");
-        }
-        String[] values = payload.split(":");
-        if (values.length != 3) {
+        try {
+            String payload = decode(parts[0]);
+            if (!sign(payload).equals(parts[1])) {
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid token signature");
+            }
+            String[] values = payload.split(":");
+            if (values.length != 3) {
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid token payload");
+            }
+            long expiresAt = Long.parseLong(values[2]);
+            if (Instant.now().getEpochSecond() >= expiresAt) {
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "Token has expired");
+            }
+            return new CurrentUser(UUID.fromString(values[0]), UserRole.valueOf(values[1]));
+        } catch (IllegalArgumentException exception) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Invalid token payload");
         }
-        long expiresAt = Long.parseLong(values[2]);
-        if (Instant.now().getEpochSecond() >= expiresAt) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Token has expired");
-        }
-        return new CurrentUser(UUID.fromString(values[0]), UserRole.valueOf(values[1]));
     }
 
     private String encode(String value) {

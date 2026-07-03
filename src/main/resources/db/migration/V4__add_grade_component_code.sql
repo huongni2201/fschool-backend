@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE grades
+    ADD COLUMN IF NOT EXISTS component_code VARCHAR(50);
+
+COMMIT;

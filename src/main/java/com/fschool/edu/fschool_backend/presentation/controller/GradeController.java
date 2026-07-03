@@ -42,15 +42,7 @@ public class GradeController {
         return ApiResponse.ok(portalService.getRecentGrades(tokenService.requireUser(authorization).id(), limit));
     }
 
-    @GetMapping("/summary")
-    ApiResponse<List<SubjectGradesResponse>> summary(
-            @RequestHeader(name = "Authorization", required = false) String authorization,
-            @RequestParam(required = false) UUID semesterId) {
-        UUID resolvedSemesterId = semesterId == null ? portalService.getCurrentSemester().id() : semesterId;
-        return ApiResponse.ok(portalService.getGrades(tokenService.requireUser(authorization).id(), resolvedSemesterId, null));
-    }
-
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}")
     ApiResponse<GradeItemResponse> detail(
             @RequestHeader(name = "Authorization", required = false) String authorization,
             @PathVariable UUID id) {

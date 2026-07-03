@@ -32,6 +32,9 @@ public class GradeEntity extends AuditableEntity {
     @Column(nullable = false, length = 150)
     private String title;
 
+    @Column(name = "component_code", length = 50)
+    private String componentCode;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "grade_type", nullable = false, length = 30)
     private GradeType gradeType;
