@@ -6,6 +6,5 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface SchoolYearJpaRepository extends JpaRepository<SchoolYearEntity, UUID> {
-    Optional<SchoolYearEntity> findByName(String name);
     Optional<SchoolYearEntity> findByCurrentTrue();
 }

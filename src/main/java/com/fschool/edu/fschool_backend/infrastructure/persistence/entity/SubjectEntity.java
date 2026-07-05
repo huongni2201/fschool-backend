@@ -23,9 +23,6 @@ public class SubjectEntity extends AuditableEntity {
     @Column(name = "subject_group", nullable = false, length = 50)
     private String subjectGroup = "OTHER";
 
-    @Column(name = "accent_color", nullable = false, length = 20)
-    private String accentColor = "#64748B";
-
     @Column(name = "is_score_based", nullable = false)
     private Boolean scoreBased = true;
 }

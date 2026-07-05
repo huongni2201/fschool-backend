@@ -24,7 +24,6 @@ public record GradeSummaryResponse(
             String teacherName,
             String group,
             BigDecimal average,
-            String rankLabel,
-            String accentColor) {
+            String rankLabel) {
     }
 }

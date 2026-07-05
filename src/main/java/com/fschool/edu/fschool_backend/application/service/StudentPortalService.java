@@ -1,59 +1,30 @@
 package com.fschool.edu.fschool_backend.application.service;
 
-import com.fschool.edu.fschool_backend.presentation.dto.response.AcademicPeriodResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.AssignmentResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.ClassSummaryResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.CountResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.CurrentSemesterResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.ExamResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.GradeItemResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSubjectDetailResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSummaryResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.HomeStudentResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.HomeSummaryResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.LessonResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.NewsDetailResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.NewsListItemResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.NewsPageResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.NotificationResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.SchoolYearResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.StudentDashboardResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.SubjectGradesResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.SubjectResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.TimetableDayResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.UserMeResponse;
-import com.fschool.edu.fschool_backend.application.command.UpdateMeCommand;
-import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
-import com.fschool.edu.fschool_backend.domain.enums.AssignmentStatus;
-import com.fschool.edu.fschool_backend.domain.enums.ContentStatus;
 import com.fschool.edu.fschool_backend.domain.enums.GradeType;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.AssignmentEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ExamEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.GradeEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.NewsPostEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.NotificationEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SchoolYearEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SemesterEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SubjectEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TimetableEntryEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.AssignmentJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ExamJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.GradeJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.NewsPostJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.NotificationJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SchoolYearJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SemesterJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SubjectJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TimetableEntryJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
+import com.fschool.edu.fschool_backend.presentation.dto.response.AcademicPeriodResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSubjectDetailResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSummaryResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.StudentDashboardResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.StudentTimetableResponse;
+import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.time.DayOfWeek;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -69,8 +40,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +50,8 @@ public class StudentPortalService {
     private static final DateTimeFormatter LESSON_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final String LESSON_STATUS_DONE = "done";
     private static final String LESSON_STATUS_LIVE = "live";
+    private static final String LESSON_STATUS_NEXT = "next";
+    private static final String LESSON_STATUS_NORMAL = "normal";
     private static final String LESSON_STATUS_UPCOMING = "upcoming";
     private static final ZoneId DASHBOARD_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
@@ -91,10 +62,6 @@ public class StudentPortalService {
     private final SubjectJpaRepository subjectRepository;
     private final TimetableEntryJpaRepository timetableRepository;
     private final GradeJpaRepository gradeRepository;
-    private final AssignmentJpaRepository assignmentRepository;
-    private final ExamJpaRepository examRepository;
-    private final NewsPostJpaRepository newsRepository;
-    private final NotificationJpaRepository notificationRepository;
 
     public StudentPortalService(
             UserJpaRepository userRepository,
@@ -103,11 +70,7 @@ public class StudentPortalService {
             SemesterJpaRepository semesterRepository,
             SubjectJpaRepository subjectRepository,
             TimetableEntryJpaRepository timetableRepository,
-            GradeJpaRepository gradeRepository,
-            AssignmentJpaRepository assignmentRepository,
-            ExamJpaRepository examRepository,
-            NewsPostJpaRepository newsRepository,
-            NotificationJpaRepository notificationRepository) {
+            GradeJpaRepository gradeRepository) {
         this.userRepository = userRepository;
         this.classRepository = classRepository;
         this.schoolYearRepository = schoolYearRepository;
@@ -115,71 +78,6 @@ public class StudentPortalService {
         this.subjectRepository = subjectRepository;
         this.timetableRepository = timetableRepository;
         this.gradeRepository = gradeRepository;
-        this.assignmentRepository = assignmentRepository;
-        this.examRepository = examRepository;
-        this.newsRepository = newsRepository;
-        this.notificationRepository = notificationRepository;
-    }
-
-    @Transactional(readOnly = true)
-    public UserMeResponse getMe(UUID userId) {
-        UserEntity user = requireUser(userId);
-        ClassEntity clazz = findClass(user.getClassId()).orElse(null);
-        return toUserMe(user, clazz);
-    }
-
-    @Transactional
-    public UserMeResponse updateMe(UUID userId, UpdateMeCommand command) {
-        UserEntity user = requireUser(userId);
-        user.setAvatarUrl(command.avatarUrl());
-        user.setAddress(command.address());
-        UserEntity saved = userRepository.save(user);
-        return toUserMe(saved, findClass(saved.getClassId()).orElse(null));
-    }
-
-    @Transactional(readOnly = true)
-    public HomeSummaryResponse getHomeSummary(UUID userId) {
-        UserEntity user = requireUser(userId);
-        ClassEntity clazz = requireClass(user);
-        SemesterEntity semester = getCurrentSemesterEntity();
-        Map<UUID, SubjectEntity> subjects = subjectMap();
-        LocalDate today = LocalDate.now();
-        short dayOfWeek = (short) today.getDayOfWeek().getValue();
-        List<LessonResponse> lessons = timetableRepository
-                .findByClassIdAndSemesterIdAndDayOfWeekOrderByPeriodNoAsc(clazz.getId(), semester.getId(), dayOfWeek)
-                .stream()
-                .map(entry -> toLesson(entry, subjects.get(entry.getSubjectId())))
-                .toList();
-        LessonResponse currentLesson = lessons.stream().findFirst().orElse(null);
-        List<GradeItemResponse> recentGrades = gradeRepository.findByUserIdOrderByAssessmentDateDesc(user.getId())
-                .stream().limit(5).map(this::toGradeItem).toList();
-        Instant now = Instant.now();
-        List<AssignmentResponse> assignments = assignmentRepository.findByClassId(clazz.getId()).stream()
-                .filter(item -> item.getStatus() == AssignmentStatus.PUBLISHED)
-                .filter(item -> item.getDueAt() == null || item.getDueAt().isAfter(now))
-                .sorted(Comparator.comparing(AssignmentEntity::getDueAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .limit(5)
-                .map(item -> toAssignment(item, subjects.get(item.getSubjectId())))
-                .toList();
-        List<ExamResponse> exams = examRepository.findByClassId(clazz.getId()).stream()
-                .filter(item -> !item.getExamDate().isBefore(today))
-                .sorted(Comparator.comparing(ExamEntity::getExamDate).thenComparing(ExamEntity::getStartTime))
-                .limit(5)
-                .map(item -> toExam(item, subjects.get(item.getSubjectId())))
-                .toList();
-        List<NewsListItemResponse> latestNews = newsRepository.findByStatusOrderByPublishedAtDesc(ContentStatus.PUBLISHED)
-                .stream().limit(5).map(this::toNewsListItem).toList();
-        long unreadCount = notificationRepository.countByUserIdAndRead(user.getId(), false);
-        return new HomeSummaryResponse(
-                new HomeStudentResponse(user.getFullName(), user.getStudentCode(), clazz.getName(), user.getAvatarUrl()),
-                toCurrentSemester(semester),
-                currentLesson,
-                List.of(new TimetableDayResponse(dayOfWeek, today, lessons)),
-                recentGrades,
-                assignments,
-                exams,
-                latestNews,
-                unreadCount);
     }
 
     @Transactional(readOnly = true)
@@ -223,34 +121,6 @@ public class StudentPortalService {
                 currentLesson,
                 todaySchedule,
                 recentGrades);
-    }
-
-    @Transactional(readOnly = true)
-    public SchoolYearResponse getCurrentSchoolYear() {
-        return toSchoolYear(getCurrentSchoolYearEntity());
-    }
-
-    @Transactional(readOnly = true)
-    public CurrentSemesterResponse getCurrentSemester() {
-        return toCurrentSemester(getCurrentSemesterEntity());
-    }
-
-    @Transactional(readOnly = true)
-    public List<CurrentSemesterResponse> getSemesters() {
-        Map<UUID, SchoolYearEntity> schoolYears = schoolYearRepository.findAll().stream()
-                .collect(Collectors.toMap(SchoolYearEntity::getId, Function.identity()));
-        return semesterRepository.findAll().stream()
-                .sorted(Comparator.comparing(SemesterEntity::getStartDate))
-                .map(semester -> {
-                    SchoolYearEntity schoolYear = schoolYears.get(semester.getSchoolYearId());
-                    return new CurrentSemesterResponse(
-                            semester.getId(),
-                            semester.getName(),
-                            semester.getSemesterNo(),
-                            schoolYear == null ? null : schoolYear.getName(),
-                            semester.getCurrent());
-                })
-                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -325,210 +195,25 @@ public class StudentPortalService {
     }
 
     @Transactional(readOnly = true)
-    public TimetableDayResponse getTimetableForDate(UUID userId, LocalDate date) {
+    public StudentTimetableResponse getStudentTimetable(UUID userId, LocalDate startDate, LocalDate endDate) {
         UserEntity user = requireUser(userId);
         ClassEntity clazz = requireClass(user);
-        SemesterEntity semester = getCurrentSemesterEntity();
-        short dayOfWeek = (short) date.getDayOfWeek().getValue();
+        LocalDate resolvedStart = startDate == null
+                ? LocalDate.now(DASHBOARD_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                : startDate;
+        LocalDate resolvedEnd = endDate == null ? resolvedStart.plusDays(6) : endDate;
+        if (resolvedEnd.isBefore(resolvedStart)) {
+            resolvedEnd = resolvedStart;
+        }
+
         Map<UUID, SubjectEntity> subjects = subjectMap();
-        List<LessonResponse> lessons = timetableRepository
-                .findByClassIdAndSemesterIdAndDayOfWeekOrderByPeriodNoAsc(clazz.getId(), semester.getId(), dayOfWeek)
-                .stream()
-                .map(entry -> toLesson(entry, subjects.get(entry.getSubjectId())))
-                .toList();
-        return new TimetableDayResponse(dayOfWeek, date, lessons);
-    }
-
-    @Transactional(readOnly = true)
-    public List<TimetableDayResponse> getTimetableWeek(UUID userId, LocalDate startDate) {
-        LocalDate monday = (startDate == null ? LocalDate.now() : startDate)
-                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        return java.util.stream.IntStream.range(0, 7)
-                .mapToObj(monday::plusDays)
-                .map(date -> getTimetableForDate(userId, date))
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public LessonResponse getLesson(UUID userId, UUID lessonId) {
-        UserEntity user = requireUser(userId);
-        ClassEntity clazz = requireClass(user);
-        TimetableEntryEntity entry = timetableRepository.findById(lessonId)
-                .orElseThrow(() -> notFound("Timetable entry was not found"));
-        if (!entry.getClassId().equals(clazz.getId())) {
-            throw notFound("Timetable entry was not found");
+        List<StudentTimetableResponse.Day> days = new ArrayList<>();
+        LocalDate currentDate = resolvedStart;
+        while (!currentDate.isAfter(resolvedEnd)) {
+            days.add(toStudentTimetableDay(clazz, currentDate, subjects));
+            currentDate = currentDate.plusDays(1);
         }
-        SubjectEntity subject = subjectRepository.findById(entry.getSubjectId()).orElse(null);
-        return toLesson(entry, subject);
-    }
-
-    @Transactional(readOnly = true)
-    public List<SubjectGradesResponse> getGrades(UUID userId, UUID semesterId, UUID subjectId) {
-        List<GradeEntity> grades = subjectId == null
-                ? gradeRepository.findByUserIdAndSemesterIdOrderByAssessmentDateDesc(userId, semesterId)
-                : gradeRepository.findByUserIdAndSubjectIdAndSemesterId(userId, subjectId, semesterId);
-        Map<UUID, SubjectEntity> subjects = subjectMap();
-        Map<UUID, List<GradeEntity>> bySubject = grades.stream()
-                .collect(Collectors.groupingBy(GradeEntity::getSubjectId, LinkedHashMap::new, Collectors.toList()));
-        return bySubject.entrySet().stream()
-                .map(entry -> {
-                    SubjectEntity subject = subjects.get(entry.getKey());
-                    List<GradeItemResponse> items = entry.getValue().stream().map(this::toGradeItem).toList();
-                    return new SubjectGradesResponse(
-                            entry.getKey(),
-                            subject == null ? null : subject.getCode(),
-                            subject == null ? null : subject.getName(),
-                            average(entry.getValue()),
-                            items);
-                })
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public List<GradeItemResponse> getRecentGrades(UUID userId, int limit) {
-        return gradeRepository.findByUserIdOrderByAssessmentDateDesc(userId).stream()
-                .limit(Math.max(1, limit))
-                .map(this::toGradeItem)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public GradeItemResponse getGrade(UUID userId, UUID gradeId) {
-        GradeEntity grade = gradeRepository.findById(gradeId).orElseThrow(() -> notFound("Grade was not found"));
-        if (!grade.getUserId().equals(userId)) {
-            throw notFound("Grade was not found");
-        }
-        return toGradeItem(grade);
-    }
-
-    @Transactional(readOnly = true)
-    public List<AssignmentResponse> getAssignments(
-            UUID userId, AssignmentStatus status, UUID subjectId, UUID semesterId, boolean upcoming) {
-        ClassEntity clazz = requireClass(requireUser(userId));
-        Map<UUID, SubjectEntity> subjects = subjectMap();
-        Instant now = Instant.now();
-        return assignmentRepository.findByClassId(clazz.getId()).stream()
-                .filter(item -> status == null || item.getStatus() == status)
-                .filter(item -> subjectId == null || item.getSubjectId().equals(subjectId))
-                .filter(item -> semesterId == null || item.getSemesterId().equals(semesterId))
-                .filter(item -> !upcoming || item.getDueAt() == null || item.getDueAt().isAfter(now))
-                .sorted(Comparator.comparing(AssignmentEntity::getDueAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .map(item -> toAssignment(item, subjects.get(item.getSubjectId())))
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public AssignmentResponse getAssignment(UUID userId, UUID assignmentId) {
-        ClassEntity clazz = requireClass(requireUser(userId));
-        AssignmentEntity assignment = assignmentRepository.findById(assignmentId)
-                .orElseThrow(() -> notFound("Assignment was not found"));
-        if (!assignment.getClassId().equals(clazz.getId())) {
-            throw notFound("Assignment was not found");
-        }
-        return toAssignment(assignment, subjectRepository.findById(assignment.getSubjectId()).orElse(null));
-    }
-
-    @Transactional(readOnly = true)
-    public List<ExamResponse> getExams(UUID userId, UUID semesterId, UUID subjectId, boolean upcoming) {
-        ClassEntity clazz = requireClass(requireUser(userId));
-        Map<UUID, SubjectEntity> subjects = subjectMap();
-        LocalDate today = LocalDate.now();
-        return examRepository.findByClassId(clazz.getId()).stream()
-                .filter(item -> semesterId == null || item.getSemesterId().equals(semesterId))
-                .filter(item -> subjectId == null || item.getSubjectId().equals(subjectId))
-                .filter(item -> !upcoming || !item.getExamDate().isBefore(today))
-                .sorted(Comparator.comparing(ExamEntity::getExamDate).thenComparing(ExamEntity::getStartTime))
-                .map(item -> toExam(item, subjects.get(item.getSubjectId())))
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public ExamResponse getExam(UUID userId, UUID examId) {
-        ClassEntity clazz = requireClass(requireUser(userId));
-        ExamEntity exam = examRepository.findById(examId).orElseThrow(() -> notFound("Exam was not found"));
-        if (!exam.getClassId().equals(clazz.getId())) {
-            throw notFound("Exam was not found");
-        }
-        return toExam(exam, subjectRepository.findById(exam.getSubjectId()).orElse(null));
-    }
-
-    @Transactional(readOnly = true)
-    public NewsPageResponse getNews(int page, int size) {
-        Page<NewsPostEntity> result = newsRepository.findByStatusOrderByPublishedAtDesc(
-                ContentStatus.PUBLISHED, PageRequest.of(Math.max(0, page), Math.max(1, size)));
-        return new NewsPageResponse(
-                result.getContent().stream().map(this::toNewsListItem).toList(),
-                result.getNumber(),
-                result.getSize(),
-                result.getTotalElements(),
-                result.getTotalPages());
-    }
-
-    @Transactional(readOnly = true)
-    public NewsDetailResponse getNewsDetail(UUID id) {
-        NewsPostEntity news = newsRepository.findById(id).orElseThrow(() -> notFound("News post was not found"));
-        if (news.getStatus() != ContentStatus.PUBLISHED) {
-            throw notFound("News post was not found");
-        }
-        return new NewsDetailResponse(
-                news.getId(), news.getTitle(), news.getSummary(), news.getContent(), news.getThumbnailUrl(), news.getPublishedAt());
-    }
-
-    @Transactional(readOnly = true)
-    public List<NotificationResponse> getNotifications(UUID userId, Boolean isRead) {
-        List<NotificationEntity> notifications = isRead == null
-                ? notificationRepository.findByUserIdOrderByCreatedAtDesc(userId)
-                : notificationRepository.findByUserIdAndReadOrderByCreatedAtDesc(userId, isRead);
-        return notifications.stream().map(this::toNotification).toList();
-    }
-
-    @Transactional(readOnly = true)
-    public CountResponse getUnreadNotificationCount(UUID userId) {
-        return new CountResponse(notificationRepository.countByUserIdAndRead(userId, false));
-    }
-
-    @Transactional
-    public void markNotificationRead(UUID userId, UUID notificationId) {
-        NotificationEntity notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> notFound("Notification was not found"));
-        if (!notification.getUserId().equals(userId)) {
-            throw notFound("Notification was not found");
-        }
-        notification.setRead(true);
-        notification.setReadAt(Instant.now());
-        notificationRepository.save(notification);
-    }
-
-    @Transactional
-    public void markAllNotificationsRead(UUID userId) {
-        notificationRepository.findByUserIdAndReadOrderByCreatedAtDesc(userId, false).forEach(notification -> {
-            notification.setRead(true);
-            notification.setReadAt(Instant.now());
-            notificationRepository.save(notification);
-        });
-    }
-
-    @Transactional
-    public void deleteNotification(UUID userId, UUID notificationId) {
-        NotificationEntity notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> notFound("Notification was not found"));
-        if (!notification.getUserId().equals(userId)) {
-            throw notFound("Notification was not found");
-        }
-        notificationRepository.delete(notification);
-    }
-
-    @Transactional(readOnly = true)
-    public List<SubjectResponse> getSubjects() {
-        return subjectRepository.findAll().stream()
-                .sorted(Comparator.comparing(SubjectEntity::getCode))
-                .map(this::toSubject)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
-    public SubjectResponse getSubject(UUID id) {
-        return toSubject(subjectRepository.findById(id).orElseThrow(() -> notFound("Subject was not found")));
+        return new StudentTimetableResponse(resolvedStart, resolvedEnd, days);
     }
 
     private UserEntity requireUser(UUID userId) {
@@ -543,58 +228,17 @@ public class StudentPortalService {
         return classId == null ? Optional.empty() : classRepository.findById(classId);
     }
 
-    private SchoolYearEntity getCurrentSchoolYearEntity() {
-        return schoolYearRepository.findByCurrentTrue().orElseThrow(() -> notFound("Current school year was not found"));
-    }
-
-    private SemesterEntity getCurrentSemesterEntity() {
-        return findCurrentSemesterEntity().orElseThrow(() -> notFound("Current semester was not found"));
-    }
-
     private Optional<SemesterEntity> findCurrentSemesterEntity() {
         return schoolYearRepository.findByCurrentTrue()
                 .flatMap(schoolYear -> semesterRepository.findBySchoolYearIdAndCurrentTrue(schoolYear.getId()));
     }
 
+    private SchoolYearEntity getCurrentSchoolYearEntity() {
+        return schoolYearRepository.findByCurrentTrue().orElseThrow(() -> notFound("Current school year was not found"));
+    }
+
     private Map<UUID, SubjectEntity> subjectMap() {
         return subjectRepository.findAll().stream().collect(Collectors.toMap(SubjectEntity::getId, Function.identity()));
-    }
-
-    private UserMeResponse toUserMe(UserEntity user, ClassEntity clazz) {
-        ClassSummaryResponse classSummary = clazz == null
-                ? null
-                : new ClassSummaryResponse(clazz.getId(), clazz.getName(), clazz.getGradeNumber(), clazz.getRoomName(), clazz.getHomeroomTeacherName());
-        return new UserMeResponse(
-                user.getId(),
-                user.getPhone(),
-                user.getStudentCode(),
-                user.getFullName(),
-                user.getDateOfBirth(),
-                user.getGender(),
-                user.getAvatarUrl(),
-                user.getAddress(),
-                user.getGuardianName(),
-                user.getGuardianPhone(),
-                classSummary);
-    }
-
-    private SchoolYearResponse toSchoolYear(SchoolYearEntity schoolYear) {
-        return new SchoolYearResponse(
-                schoolYear.getId(),
-                schoolYear.getName(),
-                schoolYear.getStartDate(),
-                schoolYear.getEndDate(),
-                schoolYear.getCurrent());
-    }
-
-    private CurrentSemesterResponse toCurrentSemester(SemesterEntity semester) {
-        SchoolYearEntity schoolYear = schoolYearRepository.findById(semester.getSchoolYearId()).orElse(null);
-        return new CurrentSemesterResponse(
-                semester.getId(),
-                semester.getName(),
-                semester.getSemesterNo(),
-                schoolYear == null ? null : schoolYear.getName(),
-                semester.getCurrent());
     }
 
     private SchoolYearEntity resolveAcademicPeriodSchoolYear(UserEntity student) {
@@ -666,7 +310,8 @@ public class StudentPortalService {
 
     private PeriodResolution resolvePeriod(String periodId) {
         if (periodId == null || periodId.isBlank()) {
-            SemesterEntity semester = getCurrentSemesterEntity();
+            SemesterEntity semester = findCurrentSemesterEntity()
+                    .orElseThrow(() -> notFound("Current semester was not found"));
             return toSemesterPeriodResolution(semester, requireSchoolYear(semester.getSchoolYearId()));
         }
         if (periodId.startsWith("semester_")) {
@@ -837,8 +482,7 @@ public class StudentPortalService {
                 teacherNames.get(subjectId),
                 subjectGroup(subject),
                 average,
-                rankLabel(average),
-                subjectAccentColor(subject));
+                rankLabel(average));
     }
 
     private String subjectClientId(UUID subjectId, String subjectCode) {
@@ -951,30 +595,6 @@ public class StudentPortalService {
         };
     }
 
-    private String subjectAccentColor(SubjectEntity subject) {
-        if (subject != null && subject.getAccentColor() != null && !subject.getAccentColor().isBlank()) {
-            return subject.getAccentColor();
-        }
-        String code = normalizeSubjectCode(subject == null ? null : subject.getCode());
-        return switch (code) {
-            case "MATH" -> "#F46A00";
-            case "LITERATURE" -> "#B07D56";
-            case "ENGLISH" -> "#2563EB";
-            case "PHYSICS" -> "#0EA5E9";
-            case "CHEMISTRY" -> "#16A34A";
-            case "BIOLOGY" -> "#65A30D";
-            case "INFORMATICS" -> "#7C3AED";
-            case "HISTORY" -> "#B45309";
-            case "GEOGRAPHY" -> "#0891B2";
-            case "CIVICS" -> "#DB2777";
-            case "TECHNOLOGY" -> "#475569";
-            case "PE" -> "#DC2626";
-            case "DEFENSE" -> "#4B5563";
-            case "LOCAL_EDU" -> "#059669";
-            default -> "#64748B";
-        };
-    }
-
     private int subjectDisplayOrder(String subjectId) {
         String normalizedSubjectId = subjectId == null ? "" : subjectId.toLowerCase(Locale.ROOT);
         return switch (normalizedSubjectId) {
@@ -1000,12 +620,126 @@ public class StudentPortalService {
         return subjectCode == null ? "" : subjectCode.toUpperCase(Locale.ROOT);
     }
 
-    private record PeriodResolution(GradeSummaryResponse.Period response, List<SemesterEntity> semesters) {
+    private StudentTimetableResponse.Day toStudentTimetableDay(
+            ClassEntity clazz,
+            LocalDate date,
+            Map<UUID, SubjectEntity> subjects) {
+        short dayOfWeek = (short) date.getDayOfWeek().getValue();
+        List<TimetableEntryEntity> entries = findTimetableSemester(clazz, date)
+                .map(semester -> timetableRepository
+                        .findByClassIdAndSemesterIdAndDayOfWeekOrderByPeriodNoAsc(
+                                clazz.getId(), semester.getId(), dayOfWeek))
+                .orElseGet(List::of);
+        UUID nextLessonId = nextStudentTimetableLessonId(date, entries).orElse(null);
+        List<StudentTimetableResponse.Lesson> lessons = entries.stream()
+                .map(entry -> toStudentTimetableLesson(
+                        entry,
+                        subjects.get(entry.getSubjectId()),
+                        clazz,
+                        date,
+                        nextLessonId))
+                .toList();
+        return new StudentTimetableResponse.Day(
+                date,
+                studentTimetableDayLabel(date.getDayOfWeek()),
+                lessons);
+    }
+
+    private Optional<SemesterEntity> findTimetableSemester(ClassEntity clazz, LocalDate date) {
+        List<SemesterEntity> classSemesters = semesterRepository.findBySchoolYearId(clazz.getSchoolYearId());
+        return classSemesters.stream()
+                .filter(semester -> !date.isBefore(semester.getStartDate()) && !date.isAfter(semester.getEndDate()))
+                .findFirst()
+                .or(() -> classSemesters.stream()
+                        .filter(semester -> Boolean.TRUE.equals(semester.getCurrent()))
+                        .findFirst())
+                .or(this::findCurrentSemesterEntity);
+    }
+
+    private Optional<UUID> nextStudentTimetableLessonId(LocalDate date, List<TimetableEntryEntity> entries) {
+        LocalDate today = LocalDate.now(DASHBOARD_ZONE);
+        if (!date.equals(today)) {
+            return Optional.empty();
+        }
+        LocalTime now = LocalTime.now(DASHBOARD_ZONE);
+        return entries.stream()
+                .filter(entry -> now.isBefore(entry.getStartTime()))
+                .findFirst()
+                .map(TimetableEntryEntity::getId);
+    }
+
+    private StudentTimetableResponse.Lesson toStudentTimetableLesson(
+            TimetableEntryEntity entry,
+            SubjectEntity subject,
+            ClassEntity clazz,
+            LocalDate date,
+            UUID nextLessonId) {
+        String status = studentTimetableLessonStatus(entry, date, nextLessonId);
+        return new StudentTimetableResponse.Lesson(
+                entry.getId().toString(),
+                subject == null ? null : subject.getName(),
+                clazz.getName(),
+                entry.getRoomName(),
+                entry.getTeacherName(),
+                entry.getPeriodNo(),
+                studentTimetablePeriodLabel(entry.getPeriodNo()),
+                entry.getStartTime().format(LESSON_TIME_FORMATTER),
+                entry.getEndTime().format(LESSON_TIME_FORMATTER),
+                status,
+                studentTimetableStatusLabel(status),
+                "");
+    }
+
+    private String studentTimetableLessonStatus(TimetableEntryEntity entry, LocalDate date, UUID nextLessonId) {
+        LocalDate today = LocalDate.now(DASHBOARD_ZONE);
+        if (date.isBefore(today)) {
+            return LESSON_STATUS_DONE;
+        }
+        if (date.isAfter(today)) {
+            return LESSON_STATUS_NORMAL;
+        }
+        LocalTime now = LocalTime.now(DASHBOARD_ZONE);
+        if (!now.isBefore(entry.getStartTime()) && now.isBefore(entry.getEndTime())) {
+            return LESSON_STATUS_LIVE;
+        }
+        if (!now.isBefore(entry.getEndTime())) {
+            return LESSON_STATUS_DONE;
+        }
+        if (nextLessonId != null && nextLessonId.equals(entry.getId())) {
+            return LESSON_STATUS_NEXT;
+        }
+        return LESSON_STATUS_NORMAL;
+    }
+
+    private String studentTimetableDayLabel(DayOfWeek dayOfWeek) {
+        return switch (dayOfWeek) {
+            case MONDAY -> "Th\u1EE9 2";
+            case TUESDAY -> "Th\u1EE9 3";
+            case WEDNESDAY -> "Th\u1EE9 4";
+            case THURSDAY -> "Th\u1EE9 5";
+            case FRIDAY -> "Th\u1EE9 6";
+            case SATURDAY -> "Th\u1EE9 7";
+            case SUNDAY -> "Ch\u1EE7 nh\u1EADt";
+        };
+    }
+
+    private String studentTimetablePeriodLabel(Short periodNo) {
+        return "Ti\u1EBFt " + periodNo;
+    }
+
+    private String studentTimetableStatusLabel(String status) {
+        return switch (status) {
+            case LESSON_STATUS_DONE -> "\u0110\u00E3 h\u1ECDc";
+            case LESSON_STATUS_LIVE -> "\u0110ang h\u1ECDc";
+            case LESSON_STATUS_NEXT -> "S\u1EAFp t\u1EDBi";
+            case LESSON_STATUS_NORMAL -> "B\u00ECnh th\u01B0\u1EDDng";
+            default -> status;
+        };
     }
 
     private StudentDashboardResponse.ScheduleItem toDashboardScheduleItem(
             TimetableEntryEntity entry, SubjectEntity subject, LocalTime now) {
-        String status = lessonStatus(entry, now);
+        String status = dashboardLessonStatus(entry, now);
         return new StudentDashboardResponse.ScheduleItem(
                 timeLabel(entry.getStartTime(), entry.getEndTime()),
                 subject == null ? null : subject.getName(),
@@ -1013,7 +747,7 @@ public class StudentPortalService {
                 entry.getRoomName(),
                 entry.getTeacherName(),
                 status,
-                lessonStatusLabel(status));
+                dashboardLessonStatusLabel(status));
     }
 
     private StudentDashboardResponse.CurrentLesson toDashboardCurrentLesson(
@@ -1035,18 +769,18 @@ public class StudentPortalService {
     }
 
     private String todayTitle(LocalDate date) {
-        return "Hôm nay · " + vietnameseDayName(date.getDayOfWeek());
+        return "H\u00F4m nay - " + vietnameseDayName(date.getDayOfWeek());
     }
 
     private String vietnameseDayName(DayOfWeek dayOfWeek) {
         return switch (dayOfWeek) {
-            case MONDAY -> "Thứ hai";
-            case TUESDAY -> "Thứ ba";
-            case WEDNESDAY -> "Thứ tư";
-            case THURSDAY -> "Thứ năm";
-            case FRIDAY -> "Thứ sáu";
-            case SATURDAY -> "Thứ bảy";
-            case SUNDAY -> "Chủ nhật";
+            case MONDAY -> "Th\u1EE9 hai";
+            case TUESDAY -> "Th\u1EE9 ba";
+            case WEDNESDAY -> "Th\u1EE9 t\u01B0";
+            case THURSDAY -> "Th\u1EE9 n\u0103m";
+            case FRIDAY -> "Th\u1EE9 s\u00E1u";
+            case SATURDAY -> "Th\u1EE9 b\u1EA3y";
+            case SUNDAY -> "Ch\u1EE7 nh\u1EADt";
         };
     }
 
@@ -1055,10 +789,10 @@ public class StudentPortalService {
     }
 
     private String periodLabel(Short periodNo) {
-        return "Tiết " + periodNo;
+        return "Ti\u1EBFt " + periodNo;
     }
 
-    private String lessonStatus(TimetableEntryEntity entry, LocalTime now) {
+    private String dashboardLessonStatus(TimetableEntryEntity entry, LocalTime now) {
         if (now.isBefore(entry.getStartTime())) {
             return LESSON_STATUS_UPCOMING;
         }
@@ -1068,116 +802,31 @@ public class StudentPortalService {
         return LESSON_STATUS_DONE;
     }
 
-    private String lessonStatusLabel(String status) {
+    private String dashboardLessonStatusLabel(String status) {
         return switch (status) {
-            case LESSON_STATUS_DONE -> "Đã xong";
-            case LESSON_STATUS_LIVE -> "Đang học";
-            case LESSON_STATUS_UPCOMING -> "Sắp học";
+            case LESSON_STATUS_DONE -> "\u0110\u00E3 xong";
+            case LESSON_STATUS_LIVE -> "\u0110ang h\u1ECDc";
+            case LESSON_STATUS_UPCOMING -> "S\u1EAFp h\u1ECDc";
             default -> status;
         };
     }
 
     private String gradeLabel(BigDecimal score, BigDecimal maxScore) {
         if (score == null) {
-            return "Chưa có điểm";
+            return "Ch\u01B0a c\u00F3 \u0111i\u1EC3m";
         }
         BigDecimal normalizedScore = score.multiply(BigDecimal.TEN)
                 .divide(maxScore == null ? BigDecimal.TEN : maxScore, 2, RoundingMode.HALF_UP);
         if (normalizedScore.compareTo(BigDecimal.valueOf(8)) >= 0) {
-            return "Tốt";
+            return "T\u1ED1t";
         }
         if (normalizedScore.compareTo(BigDecimal.valueOf(6.5)) >= 0) {
-            return "Khá";
+            return "Kh\u00E1";
         }
         if (normalizedScore.compareTo(BigDecimal.valueOf(5)) >= 0) {
-            return "Đạt";
+            return "\u0110\u1EA1t";
         }
-        return "Cần cải thiện";
-    }
-
-    private LessonResponse toLesson(TimetableEntryEntity entry, SubjectEntity subject) {
-        return new LessonResponse(
-                entry.getId(),
-                entry.getPeriodNo(),
-                subject == null ? null : subject.getCode(),
-                subject == null ? null : subject.getName(),
-                entry.getStartTime(),
-                entry.getEndTime(),
-                entry.getTeacherName(),
-                entry.getRoomName());
-    }
-
-    private GradeItemResponse toGradeItem(GradeEntity grade) {
-        return new GradeItemResponse(
-                grade.getId(),
-                grade.getTitle(),
-                grade.getGradeType(),
-                grade.getScore(),
-                grade.getMaxScore(),
-                grade.getWeight(),
-                grade.getAssessmentDate(),
-                grade.getComment());
-    }
-
-    private BigDecimal average(List<GradeEntity> grades) {
-        BigDecimal weightedTotal = BigDecimal.ZERO;
-        BigDecimal totalWeight = BigDecimal.ZERO;
-        for (GradeEntity grade : grades) {
-            if (grade.getScore() != null) {
-                weightedTotal = weightedTotal.add(grade.getScore().multiply(grade.getWeight()));
-                totalWeight = totalWeight.add(grade.getWeight());
-            }
-        }
-        return totalWeight.compareTo(BigDecimal.ZERO) == 0
-                ? null
-                : weightedTotal.divide(totalWeight, 2, RoundingMode.HALF_UP);
-    }
-
-    private AssignmentResponse toAssignment(AssignmentEntity assignment, SubjectEntity subject) {
-        return new AssignmentResponse(
-                assignment.getId(),
-                assignment.getTitle(),
-                assignment.getDescription(),
-                subject == null ? null : subject.getName(),
-                assignment.getTeacherName(),
-                assignment.getAttachmentUrl(),
-                assignment.getDueAt(),
-                assignment.getStatus(),
-                assignment.getDueAt() != null && assignment.getDueAt().isBefore(Instant.now()));
-    }
-
-    private ExamResponse toExam(ExamEntity exam, SubjectEntity subject) {
-        return new ExamResponse(
-                exam.getId(),
-                exam.getTitle(),
-                subject == null ? null : subject.getName(),
-                exam.getExamType(),
-                exam.getExamDate(),
-                exam.getStartTime(),
-                exam.getDurationMinutes(),
-                exam.getRoomName(),
-                exam.getNote());
-    }
-
-    private NewsListItemResponse toNewsListItem(NewsPostEntity news) {
-        return new NewsListItemResponse(
-                news.getId(), news.getTitle(), news.getSummary(), news.getThumbnailUrl(), news.getPublishedAt());
-    }
-
-    private NotificationResponse toNotification(NotificationEntity notification) {
-        return new NotificationResponse(
-                notification.getId(),
-                notification.getTitle(),
-                notification.getBody(),
-                notification.getNotificationType(),
-                notification.getDeepLink(),
-                notification.getRead(),
-                notification.getReadAt(),
-                notification.getCreatedAt());
-    }
-
-    private SubjectResponse toSubject(SubjectEntity subject) {
-        return new SubjectResponse(subject.getId(), subject.getCode(), subject.getName(), subject.getScoreBased());
+        return "C\u1EA7n c\u1EA3i thi\u1EC7n";
     }
 
     private ApiException notFound(String message) {
@@ -1186,5 +835,8 @@ public class StudentPortalService {
 
     private ApiException badRequest(String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, message);
+    }
+
+    private record PeriodResolution(GradeSummaryResponse.Period response, List<SemesterEntity> semesters) {
     }
 }
