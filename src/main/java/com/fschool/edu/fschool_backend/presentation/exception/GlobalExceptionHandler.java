@@ -1,6 +1,7 @@
 package com.fschool.edu.fschool_backend.presentation.exception;
 
 import com.fschool.edu.fschool_backend.presentation.dto.response.ApiResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.ApiErrorResponse;
 import com.fschool.edu.fschool_backend.domain.exception.DomainException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,12 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiResponse<Void>> handleDomainException(DomainException exception) {
         log.warn("Domain exception: message={}", exception.getMessage());
         return ResponseEntity.badRequest().body(ApiResponse.error(exception.getMessage()));
+    }
+
+    @ExceptionHandler(RequestValidationException.class)
+    ResponseEntity<ApiErrorResponse> handleRequestValidationException(RequestValidationException exception) {
+        return ResponseEntity.badRequest()
+                .body(new ApiErrorResponse(false, exception.getMessage(), "VALIDATION_ERROR", exception.getErrors()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
