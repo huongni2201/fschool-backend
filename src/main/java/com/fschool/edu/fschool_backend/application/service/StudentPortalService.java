@@ -1,15 +1,20 @@
 package com.fschool.edu.fschool_backend.application.service;
 
+import com.fschool.edu.fschool_backend.domain.enums.ExamType;
 import com.fschool.edu.fschool_backend.domain.enums.GradeType;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ExamEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.GradeEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.NotificationEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SchoolYearEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SemesterEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SubjectEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TimetableEntryEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ExamJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.GradeJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.NotificationJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SchoolYearJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SemesterJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SubjectJpaRepository;
@@ -19,12 +24,15 @@ import com.fschool.edu.fschool_backend.presentation.dto.response.AcademicPeriodR
 import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSubjectDetailResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.GradeSummaryResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentDashboardResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.StudentExamScheduleResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.StudentNotificationsResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentTimetableResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -48,6 +56,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudentPortalService {
 
     private static final DateTimeFormatter LESSON_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter EXAM_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     private static final String LESSON_STATUS_DONE = "done";
     private static final String LESSON_STATUS_LIVE = "live";
     private static final String LESSON_STATUS_NEXT = "next";
@@ -62,6 +71,8 @@ public class StudentPortalService {
     private final SubjectJpaRepository subjectRepository;
     private final TimetableEntryJpaRepository timetableRepository;
     private final GradeJpaRepository gradeRepository;
+    private final ExamJpaRepository examRepository;
+    private final NotificationJpaRepository notificationRepository;
 
     public StudentPortalService(
             UserJpaRepository userRepository,
@@ -70,7 +81,9 @@ public class StudentPortalService {
             SemesterJpaRepository semesterRepository,
             SubjectJpaRepository subjectRepository,
             TimetableEntryJpaRepository timetableRepository,
-            GradeJpaRepository gradeRepository) {
+            GradeJpaRepository gradeRepository,
+            ExamJpaRepository examRepository,
+            NotificationJpaRepository notificationRepository) {
         this.userRepository = userRepository;
         this.classRepository = classRepository;
         this.schoolYearRepository = schoolYearRepository;
@@ -78,6 +91,8 @@ public class StudentPortalService {
         this.subjectRepository = subjectRepository;
         this.timetableRepository = timetableRepository;
         this.gradeRepository = gradeRepository;
+        this.examRepository = examRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     @Transactional(readOnly = true)
@@ -216,6 +231,45 @@ public class StudentPortalService {
         return new StudentTimetableResponse(resolvedStart, resolvedEnd, days);
     }
 
+    @Transactional(readOnly = true)
+    public StudentExamScheduleResponse getStudentExamSchedule(UUID studentId) {
+        UserEntity student = requireUser(studentId);
+        ClassEntity clazz = requireClass(student);
+        Map<UUID, SubjectEntity> subjects = subjectMap();
+        Optional<SemesterEntity> semester = findCurrentSemesterForClass(clazz);
+        List<ExamEntity> exams = semester
+                .map(value -> examRepository.findByClassIdAndSemesterIdOrderByExamDateAscStartTimeAsc(
+                        clazz.getId(), value.getId()))
+                .orElseGet(List::of);
+        LocalDate today = LocalDate.now(DASHBOARD_ZONE);
+        List<StudentExamScheduleResponse.ExamItem> examItems = exams.stream()
+                .map(exam -> toStudentExamItem(exam, subjects.get(exam.getSubjectId()), today))
+                .toList();
+        Instant lastUpdatedAt = exams.stream()
+                .map(ExamEntity::getUpdatedAt)
+                .filter(java.util.Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElseGet(Instant::now);
+
+        return new StudentExamScheduleResponse(
+                semester.map(this::examTermName).orElse(null),
+                lastUpdatedAt,
+                examItems);
+    }
+
+    @Transactional(readOnly = true)
+    public StudentNotificationsResponse getStudentNotifications(UUID studentId) {
+        UserEntity student = requireUser(studentId);
+        List<NotificationEntity> notifications =
+                notificationRepository.findByUserIdOrderByCreatedAtDesc(student.getId());
+        long unreadCount = notificationRepository.countByUserIdAndReadFalse(student.getId());
+        return new StudentNotificationsResponse(
+                unreadCount,
+                notifications.stream()
+                        .map(this::toStudentNotificationItem)
+                        .toList());
+    }
+
     private UserEntity requireUser(UUID userId) {
         return userRepository.findById(userId).orElseThrow(() -> notFound("User was not found"));
     }
@@ -231,6 +285,13 @@ public class StudentPortalService {
     private Optional<SemesterEntity> findCurrentSemesterEntity() {
         return schoolYearRepository.findByCurrentTrue()
                 .flatMap(schoolYear -> semesterRepository.findBySchoolYearIdAndCurrentTrue(schoolYear.getId()));
+    }
+
+    private Optional<SemesterEntity> findCurrentSemesterForClass(ClassEntity clazz) {
+        return semesterRepository.findBySchoolYearId(clazz.getSchoolYearId()).stream()
+                .filter(semester -> Boolean.TRUE.equals(semester.getCurrent()))
+                .findFirst()
+                .or(this::findCurrentSemesterEntity);
     }
 
     private SchoolYearEntity getCurrentSchoolYearEntity() {
@@ -688,6 +749,113 @@ public class StudentPortalService {
                 status,
                 studentTimetableStatusLabel(status),
                 "");
+    }
+
+    private StudentExamScheduleResponse.ExamItem toStudentExamItem(
+            ExamEntity exam,
+            SubjectEntity subject,
+            LocalDate today) {
+        String status = examStatus(exam.getExamDate(), today);
+        return new StudentExamScheduleResponse.ExamItem(
+                exam.getId().toString(),
+                subject == null ? exam.getTitle() : subject.getName(),
+                examTypeLabel(exam.getExamType()),
+                exam.getExamDate(),
+                formatExamTime(exam.getStartTime()),
+                formatExamTime(exam.getStartTime().plusMinutes(exam.getDurationMinutes())),
+                exam.getDurationMinutes(),
+                exam.getRoomName(),
+                null,
+                null,
+                status,
+                examStatusLabel(status),
+                exam.getNote());
+    }
+
+    private String examTermName(SemesterEntity semester) {
+        SchoolYearEntity schoolYear = requireSchoolYear(semester.getSchoolYearId());
+        return "H\u1ECDc k\u1EF3 " + semester.getSemesterNo()
+                + " - N\u0103m h\u1ECDc " + formatSchoolYearLabel(schoolYear);
+    }
+
+    private String formatExamTime(LocalTime time) {
+        return time == null ? null : time.format(EXAM_TIME_FORMATTER);
+    }
+
+    private String examTypeLabel(ExamType examType) {
+        return switch (examType) {
+            case MIDTERM -> "Gi\u1EEFa k\u1EF3";
+            case FINAL -> "Cu\u1ED1i k\u1EF3";
+            case OTHER -> "Kh\u00E1c";
+        };
+    }
+
+    private String examStatus(LocalDate examDate, LocalDate today) {
+        if (examDate.isBefore(today)) {
+            return "finished";
+        }
+        if (examDate.isEqual(today)) {
+            return "today";
+        }
+        return "upcoming";
+    }
+
+    private String examStatusLabel(String status) {
+        return switch (status) {
+            case "finished" -> "\u0110\u00E3 thi";
+            case "today" -> "Thi h\u00F4m nay";
+            case "upcoming" -> "S\u1EAFp thi";
+            case "cancelled" -> "\u0110\u00E3 h\u1EE7y";
+            default -> status;
+        };
+    }
+
+    private StudentNotificationsResponse.NotificationItem toStudentNotificationItem(NotificationEntity notification) {
+        String notificationType = normalizeNotificationType(notification.getNotificationType());
+        String deepLink = normalizeNotificationDeepLink(notification.getDeepLink());
+        return new StudentNotificationsResponse.NotificationItem(
+                notification.getId().toString(),
+                notification.getTitle(),
+                notification.getBody(),
+                notificationCategory(notificationType),
+                notification.getCreatedAt(),
+                Boolean.TRUE.equals(notification.getRead()),
+                notificationActionLabel(notificationType, deepLink),
+                deepLink);
+    }
+
+    private String normalizeNotificationType(String notificationType) {
+        return notificationType == null ? "" : notificationType.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeNotificationDeepLink(String deepLink) {
+        return deepLink == null || deepLink.isBlank() ? "" : deepLink.trim();
+    }
+
+    private String notificationCategory(String notificationType) {
+        return switch (notificationType) {
+            case "ACADEMIC", "GRADE", "SCORE", "EXAM", "ASSIGNMENT", "TIMETABLE", "SCHEDULE" -> "academic";
+            case "TUITION", "FEE", "PAYMENT" -> "tuition";
+            case "REQUEST", "FORM", "APPLICATION" -> "request";
+            case "SYSTEM", "ACCOUNT", "SECURITY" -> "system";
+            case "EVENT", "NEWS", "ANNOUNCEMENT" -> "event";
+            default -> "general";
+        };
+    }
+
+    private String notificationActionLabel(String notificationType, String deepLink) {
+        if (deepLink == null || deepLink.isBlank()) {
+            return "";
+        }
+        return switch (notificationType) {
+            case "GRADE", "SCORE" -> "Xem \u0111i\u1EC3m";
+            case "EXAM" -> "Xem l\u1ECBch thi";
+            case "ASSIGNMENT" -> "Xem b\u00E0i t\u1EADp";
+            case "TIMETABLE", "SCHEDULE" -> "Xem th\u1EDDi kh\u00F3a bi\u1EC3u";
+            case "TUITION", "FEE", "PAYMENT" -> "Xem h\u1ECDc ph\u00ED";
+            case "REQUEST", "FORM", "APPLICATION" -> "Xem \u0111\u01A1n";
+            default -> "Xem chi ti\u1EBFt";
+        };
     }
 
     private String studentTimetableLessonStatus(TimetableEntryEntity entry, LocalDate date, UUID nextLessonId) {
