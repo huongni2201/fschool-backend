@@ -27,6 +27,7 @@ import com.fschool.edu.fschool_backend.presentation.dto.response.StudentDashboar
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentExamScheduleResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentNotificationsResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentTimetableResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.StudentTuitionResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -136,6 +137,28 @@ public class StudentPortalService {
                 currentLesson,
                 todaySchedule,
                 recentGrades);
+    }
+
+    @Transactional(readOnly = true)
+    public StudentTuitionResponse getStudentTuition(UUID studentId) {
+        UserEntity student = requireUser(studentId);
+        ClassEntity clazz = requireClass(student);
+        SemesterEntity semester = findCurrentSemesterForClass(clazz)
+                .orElseThrow(() -> notFound("Current semester was not found"));
+        SchoolYearEntity schoolYear = requireSchoolYear(semester.getSchoolYearId());
+
+        return new StudentTuitionResponse(
+                tuitionSemesterName(semester, schoolYear),
+                new StudentTuitionResponse.Student(student.getFullName(), clazz.getName()),
+                0L,
+                0L,
+                0L,
+                null,
+                0,
+                null,
+                null,
+                List.of(),
+                List.of());
     }
 
     @Transactional(readOnly = true)
@@ -354,6 +377,10 @@ public class StudentPortalService {
             return schoolYear.getStartDate().getYear() + " - " + schoolYear.getEndDate().getYear();
         }
         return schoolYear.getName();
+    }
+
+    private String tuitionSemesterName(SemesterEntity semester, SchoolYearEntity schoolYear) {
+        return semesterTitle(semester.getSemesterNo()) + " " + formatSchoolYearLabel(schoolYear);
     }
 
     private String schoolYearCode(SchoolYearEntity schoolYear) {

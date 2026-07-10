@@ -6,7 +6,7 @@ public record RequestTypeResponse(
         String code,
         String name,
         String description,
-        String icon,
+        String iconName,
         boolean requiresDateRange,
         boolean requiresAttachment,
         List<Field> fields) {

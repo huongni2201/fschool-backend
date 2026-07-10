@@ -4,8 +4,8 @@ import com.fschool.edu.fschool_backend.application.service.StudentProfileService
 import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.infrastructure.security.CurrentUser;
 import com.fschool.edu.fschool_backend.infrastructure.security.TokenService;
-import com.fschool.edu.fschool_backend.presentation.dto.response.ApiErrorResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.ApiResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.MessageResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.StudentProfileResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.util.UUID;
@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class StudentProfileController {
 
     private static final Logger log = LoggerFactory.getLogger(StudentProfileController.class);
-    private static final String PROFILE_LOAD_FAILED_MESSAGE = "Không thể tải thông tin cá nhân";
-    private static final String PROFILE_LOAD_FAILED_CODE = "PROFILE_LOAD_FAILED";
+    private static final String PROFILE_LOAD_FAILED_MESSAGE =
+            "Kh\u00F4ng th\u1EC3 t\u1EA3i th\u00F4ng tin c\u00E1 nh\u00E2n";
 
     private final TokenService tokenService;
     private final StudentProfileService profileService;
@@ -39,7 +39,7 @@ public class StudentProfileController {
         try {
             UUID studentId = requireStudentId(authorization);
             StudentProfileResponse profile = profileService.getStudentProfile(studentId);
-            return ResponseEntity.ok(ApiResponse.ok(profile, "OK"));
+            return ResponseEntity.ok(ApiResponse.ok(profile));
         } catch (ApiException exception) {
             log.warn("Cannot load student profile: status={}, message={}", exception.getStatus(), exception.getMessage());
             return ResponseEntity.status(exception.getStatus()).body(profileLoadFailed());
@@ -57,7 +57,7 @@ public class StudentProfileController {
         return currentUser.id();
     }
 
-    private ApiErrorResponse profileLoadFailed() {
-        return new ApiErrorResponse(false, PROFILE_LOAD_FAILED_MESSAGE, PROFILE_LOAD_FAILED_CODE, null);
+    private MessageResponse profileLoadFailed() {
+        return MessageResponse.error(PROFILE_LOAD_FAILED_MESSAGE);
     }
 }

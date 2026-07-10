@@ -4,8 +4,8 @@ import com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestAttachmentEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestHistoryEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestTypeFieldValue;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestTypeEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestTypeFieldValue;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.StudentRequestEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UploadedFileEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
@@ -24,8 +24,15 @@ import com.fschool.edu.fschool_backend.presentation.dto.response.StudentRequestL
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import com.fschool.edu.fschool_backend.presentation.exception.RequestValidationException;
 import jakarta.persistence.criteria.Predicate;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -40,6 +47,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -48,12 +56,21 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class StudentRequestService {
 
     private static final ZoneId REQUEST_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter REQUEST_NUMBER_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final long MAX_ATTACHMENT_SIZE_BYTES = 10L * 1024L * 1024L;
+    private static final Set<String> ALLOWED_ATTACHMENT_EXTENSIONS = Set.of(
+            "pdf",
+            "jpg",
+            "jpeg",
+            "png",
+            "doc",
+            "docx");
 
     private final RequestTypeJpaRepository requestTypeRepository;
     private final StudentRequestJpaRepository requestRepository;
@@ -62,6 +79,8 @@ public class StudentRequestService {
     private final UploadedFileJpaRepository uploadedFileRepository;
     private final UserJpaRepository userRepository;
     private final ClassJpaRepository classRepository;
+    private final Path studentRequestUploadDir;
+    private final String studentRequestPublicPath;
 
     public StudentRequestService(
             RequestTypeJpaRepository requestTypeRepository,
@@ -70,7 +89,10 @@ public class StudentRequestService {
             RequestHistoryJpaRepository historyRepository,
             UploadedFileJpaRepository uploadedFileRepository,
             UserJpaRepository userRepository,
-            ClassJpaRepository classRepository) {
+            ClassJpaRepository classRepository,
+            @Value("${app.upload.student-request-dir:uploads/student-requests}") String studentRequestUploadDir,
+            @Value("${app.upload.student-request-public-path:/uploads/student-requests}")
+                    String studentRequestPublicPath) {
         this.requestTypeRepository = requestTypeRepository;
         this.requestRepository = requestRepository;
         this.attachmentRepository = attachmentRepository;
@@ -78,6 +100,8 @@ public class StudentRequestService {
         this.uploadedFileRepository = uploadedFileRepository;
         this.userRepository = userRepository;
         this.classRepository = classRepository;
+        this.studentRequestUploadDir = Paths.get(studentRequestUploadDir).toAbsolutePath().normalize();
+        this.studentRequestPublicPath = trimTrailingSlash(studentRequestPublicPath);
     }
 
     @Transactional(readOnly = true)
@@ -98,8 +122,8 @@ public class StudentRequestService {
             LocalDate toDate) {
         validatePagination(page, limit);
         StudentRequestStatus statusFilter = parseStatus(status);
-        Optional<RequestTypeEntity> typeFilter = resolveTypeFilter(typeCode);
-        if (isPresent(typeCode) && typeFilter.isEmpty()) {
+        Set<UUID> typeFilterIds = resolveTypeFilterIds(typeCode);
+        if (isPresent(typeCode) && typeFilterIds.isEmpty()) {
             return emptyListResponse(page, limit);
         }
 
@@ -108,7 +132,7 @@ public class StudentRequestService {
         Specification<StudentRequestEntity> spec = studentRequestSpec(
                 studentId,
                 statusFilter,
-                typeFilter.map(RequestTypeEntity::getId).orElse(null),
+                typeFilterIds,
                 fromInstant,
                 toInstant);
         Page<StudentRequestEntity> result = requestRepository.findAll(
@@ -118,13 +142,18 @@ public class StudentRequestService {
         List<StudentRequestListResponse.Item> items = result.getContent().stream()
                 .map(request -> toListItem(request, requestTypes.get(request.getTypeId())))
                 .toList();
+        StudentRequestListResponse.Pagination pagination = new StudentRequestListResponse.Pagination(
+                page,
+                limit,
+                result.getTotalElements(),
+                result.getTotalPages());
         return new StudentRequestListResponse(
                 items,
-                new StudentRequestListResponse.Pagination(
-                        page,
-                        limit,
-                        result.getTotalElements(),
-                        result.getTotalPages()));
+                page,
+                limit,
+                result.getTotalElements(),
+                result.getTotalPages(),
+                pagination);
     }
 
     @Transactional(readOnly = true)
@@ -141,10 +170,10 @@ public class StudentRequestService {
 
         return new StudentRequestDetailResponse(
                 request.getRequestNumber(),
-                requestType.getCode(),
-                requestType.getName(),
+                canonicalRequestTypeCode(requestType),
+                canonicalRequestTypeName(requestType),
                 request.getTitle(),
-                request.getStatus().name(),
+                statusCode(request.getStatus()),
                 statusLabel(request.getStatus()),
                 new StudentRequestDetailResponse.Student(
                         student.getStudentCode(),
@@ -159,15 +188,24 @@ public class StudentRequestService {
 
     @Transactional
     public CreateStudentRequestResponse createStudentRequest(UUID studentId, CreateStudentRequestRequest request) {
-        RequestTypeEntity requestType = validateCreateRequest(request);
-        Map<String, Object> formData = request.formData() == null ? Map.of() : request.formData();
-        List<UploadedFileEntity> attachments = resolveAttachments(request.attachmentIds());
+        return createStudentRequest(studentId, request, List.of());
+    }
+
+    @Transactional
+    public CreateStudentRequestResponse createStudentRequest(
+            UUID studentId,
+            CreateStudentRequestRequest request,
+            List<MultipartFile> attachmentFiles) {
+        RequestTypeEntity requestType = validateCreateRequest(request, attachmentFiles);
+        Map<String, Object> formData = buildFormData(request);
+        List<UploadedFileEntity> attachments = new ArrayList<>(resolveAttachments(request.attachmentIds()));
+        attachments.addAll(storeAttachments(studentId, attachmentFiles));
 
         StudentRequestEntity requestEntity = new StudentRequestEntity();
         requestEntity.setRequestNumber(generateRequestNumber());
         requestEntity.setStudentId(studentId);
         requestEntity.setTypeId(requestType.getId());
-        requestEntity.setTitle(isPresent(request.title()) ? request.title().trim() : requestType.getName());
+        requestEntity.setTitle(isPresent(request.title()) ? request.title().trim() : canonicalRequestTypeName(requestType));
         requestEntity.setStatus(StudentRequestStatus.SUBMITTED);
         requestEntity.setFormData(new LinkedHashMap<>(formData));
         StudentRequestEntity savedRequest = requestRepository.save(requestEntity);
@@ -178,41 +216,42 @@ public class StudentRequestService {
         historyRepository.save(toHistory(
                 savedRequest.getId(),
                 StudentRequestStatus.SUBMITTED,
-                "Học sinh gửi đơn",
+                "Student submitted request",
                 studentId));
 
         return new CreateStudentRequestResponse(
                 savedRequest.getRequestNumber(),
-                requestType.getCode(),
-                requestType.getName(),
+                canonicalRequestTypeCode(requestType),
+                canonicalRequestTypeName(requestType),
                 savedRequest.getTitle(),
-                savedRequest.getStatus().name(),
+                statusCode(savedRequest.getStatus()),
                 statusLabel(savedRequest.getStatus()),
-                toOffsetDateTime(savedRequest.getCreatedAt()));
+                savedRequest.getCreatedAt(),
+                savedRequest.getUpdatedAt());
     }
 
-    private RequestTypeEntity validateCreateRequest(CreateStudentRequestRequest request) {
+    private RequestTypeEntity validateCreateRequest(
+            CreateStudentRequestRequest request,
+            List<MultipartFile> attachmentFiles) {
         Map<String, List<String>> errors = new LinkedHashMap<>();
         if (request == null) {
-            addError(errors, "typeCode", "Vui lòng chọn loại đơn");
+            addError(errors, "requestTypeCode", "Request type is required");
             throw new RequestValidationException(errors);
         }
         RequestTypeEntity requestType = null;
         if (!isPresent(request.typeCode())) {
-            addError(errors, "typeCode", "Vui lòng chọn loại đơn");
+            addError(errors, "requestTypeCode", "Request type is required");
         } else {
-            requestType = requestTypeRepository
-                    .findByCode(normalizeCode(request.typeCode()))
-                    .filter(RequestTypeEntity::isActive)
-                    .orElse(null);
+            requestType = findRequestTypeByClientCode(request.typeCode(), true).orElse(null);
             if (requestType == null) {
-                addError(errors, "typeCode", "Loại đơn không hợp lệ");
+                throw new ApiException(HttpStatus.NOT_FOUND, "Invalid request type");
             }
         }
         if (requestType != null) {
-            validateFormData(requestType, request.formData(), errors);
-            validateAttachmentRequirement(requestType, request.attachmentIds(), errors);
+            validateFormData(requestType, buildFormData(request), errors);
+            validateAttachmentRequirement(requestType, request.attachmentIds(), attachmentFiles, errors);
             validateAttachmentsExist(request.attachmentIds(), errors);
+            validateUploadedAttachmentFiles(attachmentFiles);
         }
         if (!errors.isEmpty()) {
             throw new RequestValidationException(errors);
@@ -220,12 +259,29 @@ public class StudentRequestService {
         return requestType;
     }
 
+    private Map<String, Object> buildFormData(CreateStudentRequestRequest request) {
+        Map<String, Object> formData = new LinkedHashMap<>();
+        if (request.formData() != null) {
+            formData.putAll(request.formData());
+        }
+        putIfPresent(formData, "content", request.content());
+        putIfPresent(formData, "startDate", request.startDate());
+        putIfPresent(formData, "endDate", request.endDate());
+        return formData;
+    }
+
+    private void putIfPresent(Map<String, Object> formData, String key, String value) {
+        if (isPresent(value)) {
+            formData.put(key, value.trim());
+        }
+    }
+
     private void validateFormData(
             RequestTypeEntity requestType,
             Map<String, Object> formData,
             Map<String, List<String>> errors) {
         Map<String, Object> resolvedFormData = formData == null ? Map.of() : formData;
-        for (RequestTypeResponse.Field field : toRequestTypeFields(requestType.getFields())) {
+        for (RequestTypeResponse.Field field : toRequestTypeFields(requestType)) {
             if (field.required() && isBlankValue(resolvedFormData.get(field.key()))) {
                 addError(errors, field.key(), requiredMessage(field));
             }
@@ -236,11 +292,27 @@ public class StudentRequestService {
     }
 
     private void validateDateRange(Map<String, Object> formData, Map<String, List<String>> errors) {
-        Optional<LocalDate> fromDate = parseLocalDate(formData.get("fromDate"), "fromDate", errors);
-        Optional<LocalDate> toDate = parseLocalDate(formData.get("toDate"), "toDate", errors);
-        if (fromDate.isPresent() && toDate.isPresent() && toDate.get().isBefore(fromDate.get())) {
-            addError(errors, "toDate", "Đến ngày phải sau hoặc bằng từ ngày");
+        Object startValue = firstPresent(formData.get("startDate"), formData.get("fromDate"));
+        Object endValue = firstPresent(formData.get("endDate"), formData.get("toDate"));
+        Optional<LocalDate> startDate = Optional.empty();
+        Optional<LocalDate> endDate = Optional.empty();
+        if (isBlankValue(startValue)) {
+            addError(errors, "startDate", "Start date is required");
+        } else {
+            startDate = parseLocalDate(startValue, "startDate", errors);
         }
+        if (isBlankValue(endValue)) {
+            addError(errors, "endDate", "End date is required");
+        } else {
+            endDate = parseLocalDate(endValue, "endDate", errors);
+        }
+        if (startDate.isPresent() && endDate.isPresent() && endDate.get().isBefore(startDate.get())) {
+            addError(errors, "endDate", "End date must be after or equal to start date");
+        }
+    }
+
+    private Object firstPresent(Object first, Object second) {
+        return isBlankValue(first) ? second : first;
     }
 
     private Optional<LocalDate> parseLocalDate(
@@ -250,21 +322,42 @@ public class StudentRequestService {
         if (isBlankValue(value)) {
             return Optional.empty();
         }
+        String text = value.toString().trim();
         try {
-            return Optional.of(LocalDate.parse(value.toString()));
-        } catch (DateTimeParseException exception) {
-            addError(errors, field, "Ngày không hợp lệ");
-            return Optional.empty();
+            return Optional.of(LocalDate.parse(text));
+        } catch (DateTimeParseException ignored) {
+            // Try date-time formats below.
         }
+        try {
+            return Optional.of(LocalDateTime.parse(text).toLocalDate());
+        } catch (DateTimeParseException ignored) {
+            // Try the leading ISO date segment below.
+        }
+        if (text.length() >= 10) {
+            try {
+                return Optional.of(LocalDate.parse(text.substring(0, 10)));
+            } catch (DateTimeParseException ignored) {
+                // Fall through to validation error.
+            }
+        }
+        addError(errors, field, "Date is invalid");
+        return Optional.empty();
     }
 
     private void validateAttachmentRequirement(
             RequestTypeEntity requestType,
             List<String> attachmentIds,
+            List<MultipartFile> attachmentFiles,
             Map<String, List<String>> errors) {
-        if (requestType.isRequiresAttachment() && (attachmentIds == null || attachmentIds.isEmpty())) {
-            addError(errors, "attachmentIds", "Vui lòng đính kèm tệp");
+        if (requestType.isRequiresAttachment()
+                && (attachmentIds == null || attachmentIds.isEmpty())
+                && !hasUploadedFiles(attachmentFiles)) {
+            addError(errors, "attachments", "Attachment is required");
         }
+    }
+
+    private boolean hasUploadedFiles(List<MultipartFile> attachmentFiles) {
+        return attachmentFiles != null && attachmentFiles.stream().anyMatch(file -> file != null && !file.isEmpty());
     }
 
     private void validateAttachmentsExist(List<String> attachmentIds, Map<String, List<String>> errors) {
@@ -273,8 +366,23 @@ public class StudentRequestService {
         }
         for (String attachmentId : attachmentIds) {
             if (!isPresent(attachmentId) || findUploadedFile(attachmentId).isEmpty()) {
-                addError(errors, "attachmentIds", "Tệp đính kèm không hợp lệ");
+                addError(errors, "attachmentIds", "Attachment is invalid");
                 return;
+            }
+        }
+    }
+
+    private void validateUploadedAttachmentFiles(List<MultipartFile> attachmentFiles) {
+        for (MultipartFile file : normalizedAttachmentFiles(attachmentFiles)) {
+            if (file.isEmpty()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Attachment file is empty");
+            }
+            if (file.getSize() > MAX_ATTACHMENT_SIZE_BYTES) {
+                throw new ApiException(HttpStatus.PAYLOAD_TOO_LARGE, "Attachment file exceeds 10MB");
+            }
+            String extension = fileExtension(file.getOriginalFilename()).orElse("");
+            if (!ALLOWED_ATTACHMENT_EXTENSIONS.contains(extension)) {
+                throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Attachment file type is not supported");
             }
         }
     }
@@ -301,6 +409,115 @@ public class StudentRequestService {
         } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
+    }
+
+    private List<UploadedFileEntity> storeAttachments(UUID studentId, List<MultipartFile> attachmentFiles) {
+        List<MultipartFile> files = normalizedAttachmentFiles(attachmentFiles);
+        if (files.isEmpty()) {
+            return List.of();
+        }
+        try {
+            Files.createDirectories(studentRequestUploadDir);
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot prepare attachment storage");
+        }
+        List<UploadedFileEntity> storedFiles = new ArrayList<>();
+        for (MultipartFile file : files) {
+            storedFiles.add(storeAttachment(studentId, file));
+        }
+        return storedFiles;
+    }
+
+    private UploadedFileEntity storeAttachment(UUID studentId, MultipartFile file) {
+        String extension = fileExtension(file.getOriginalFilename())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Attachment file type is not supported"));
+        String fileCode = generateFileCode();
+        String storedFileName = fileCode + "." + extension;
+        Path target = studentRequestUploadDir.resolve(storedFileName).normalize();
+        if (!target.startsWith(studentRequestUploadDir)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Attachment file name is invalid");
+        }
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException exception) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot store attachment");
+        }
+
+        UploadedFileEntity uploadedFile = new UploadedFileEntity();
+        uploadedFile.setFileCode(fileCode);
+        uploadedFile.setFileName(safeOriginalFileName(file.getOriginalFilename(), extension));
+        uploadedFile.setUrl(fileUrl(storedFileName));
+        uploadedFile.setMimeType(contentType(file, extension));
+        uploadedFile.setSize(file.getSize());
+        uploadedFile.setPurpose("STUDENT_REQUEST");
+        uploadedFile.setUploadedBy(studentId);
+        return uploadedFileRepository.save(uploadedFile);
+    }
+
+    private List<MultipartFile> normalizedAttachmentFiles(List<MultipartFile> attachmentFiles) {
+        if (attachmentFiles == null || attachmentFiles.isEmpty()) {
+            return List.of();
+        }
+        return attachmentFiles.stream()
+                .filter(file -> file != null)
+                .toList();
+    }
+
+    private Optional<String> fileExtension(String filename) {
+        if (!isPresent(filename)) {
+            return Optional.empty();
+        }
+        String fileName = Paths.get(filename).getFileName().toString();
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            return Optional.empty();
+        }
+        return Optional.of(fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT));
+    }
+
+    private String safeOriginalFileName(String originalFilename, String extension) {
+        if (!isPresent(originalFilename)) {
+            return "attachment." + extension;
+        }
+        String fileName = Paths.get(originalFilename).getFileName().toString()
+                .replace('\\', '_')
+                .replace('/', '_')
+                .replace('\r', '_')
+                .replace('\n', '_');
+        return fileName.isBlank() ? "attachment." + extension : fileName;
+    }
+
+    private String fileUrl(String storedFileName) {
+        if (studentRequestPublicPath.isBlank()) {
+            return storedFileName;
+        }
+        return studentRequestPublicPath + "/" + storedFileName;
+    }
+
+    private String contentType(MultipartFile file, String extension) {
+        if (isPresent(file.getContentType())) {
+            return file.getContentType();
+        }
+        return switch (extension) {
+            case "pdf" -> "application/pdf";
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "doc" -> "application/msword";
+            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            default -> "application/octet-stream";
+        };
+    }
+
+    private String generateFileCode() {
+        String datePart = LocalDate.now(REQUEST_ZONE).format(REQUEST_NUMBER_DATE_FORMATTER);
+        String fileCode;
+        do {
+            fileCode = "FILE-" + datePart + "-" + UUID.randomUUID()
+                    .toString()
+                    .substring(0, 8)
+                    .toUpperCase(Locale.ROOT);
+        } while (uploadedFileRepository.findByFileCode(fileCode).isPresent());
+        return fileCode;
     }
 
     private RequestAttachmentEntity toAttachment(UUID requestId, UUID fileId) {
@@ -344,50 +561,90 @@ public class StudentRequestService {
 
     private StudentRequestEntity findStudentRequest(UUID studentId, String requestId) {
         if (!isPresent(requestId)) {
-            throw notFound("Không tìm thấy đơn");
+            throw notFound("Request was not found");
         }
         try {
             UUID id = UUID.fromString(requestId);
             return requestRepository.findByIdAndStudentId(id, studentId)
-                    .orElseThrow(() -> notFound("Không tìm thấy đơn"));
+                    .orElseThrow(() -> notFound("Request was not found"));
         } catch (IllegalArgumentException exception) {
             return requestRepository.findByRequestNumberAndStudentId(requestId, studentId)
-                    .orElseThrow(() -> notFound("Không tìm thấy đơn"));
+                    .orElseThrow(() -> notFound("Request was not found"));
         }
     }
 
     private RequestTypeEntity requireRequestType(UUID typeId) {
         return requestTypeRepository.findById(typeId)
-                .orElseThrow(() -> notFound("Không tìm thấy loại đơn"));
+                .orElseThrow(() -> notFound("Request type was not found"));
     }
 
     private UserEntity requireUser(UUID studentId) {
         return userRepository.findById(studentId)
-                .orElseThrow(() -> notFound("Không tìm thấy học sinh"));
+                .orElseThrow(() -> notFound("Student was not found"));
     }
 
-    private Optional<RequestTypeEntity> resolveTypeFilter(String typeCode) {
+    private Set<UUID> resolveTypeFilterIds(String typeCode) {
         if (!isPresent(typeCode)) {
-            return Optional.empty();
+            return Set.of();
         }
-        return requestTypeRepository.findByCode(normalizeCode(typeCode));
+        return requestTypeCodeCandidates(typeCode).stream()
+                .map(requestTypeRepository::findByCode)
+                .flatMap(Optional::stream)
+                .map(RequestTypeEntity::getId)
+                .collect(Collectors.toSet());
+    }
+
+    private Optional<RequestTypeEntity> findRequestTypeByClientCode(String typeCode, boolean activeOnly) {
+        return requestTypeCodeCandidates(typeCode).stream()
+                .map(requestTypeRepository::findByCode)
+                .flatMap(Optional::stream)
+                .filter(requestType -> !activeOnly || requestType.isActive())
+                .findFirst();
+    }
+
+    private List<String> requestTypeCodeCandidates(String typeCode) {
+        if (!isPresent(typeCode)) {
+            return List.of();
+        }
+        String trimmed = typeCode.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        String upper = trimmed.toUpperCase(Locale.ROOT);
+        List<String> candidates = new ArrayList<>();
+        candidates.add(trimmed);
+        candidates.add(lower);
+        candidates.add(upper);
+        switch (lower) {
+            case "absence" -> candidates.add("ABSENCE");
+            case "confirmation", "student_confirmation" -> {
+                candidates.add("confirmation");
+                candidates.add("STUDENT_CONFIRMATION");
+            }
+            default -> {
+            }
+        }
+        return candidates.stream().distinct().toList();
     }
 
     private StudentRequestListResponse emptyListResponse(int page, int limit) {
         Page<StudentRequestEntity> empty = new PageImpl<>(List.of(), PageRequest.of(page - 1, limit), 0);
+        StudentRequestListResponse.Pagination pagination = new StudentRequestListResponse.Pagination(
+                page,
+                limit,
+                empty.getTotalElements(),
+                empty.getTotalPages());
         return new StudentRequestListResponse(
                 List.of(),
-                new StudentRequestListResponse.Pagination(
-                        page,
-                        limit,
-                        empty.getTotalElements(),
-                        empty.getTotalPages()));
+                page,
+                limit,
+                empty.getTotalElements(),
+                empty.getTotalPages(),
+                pagination);
     }
 
     private Specification<StudentRequestEntity> studentRequestSpec(
             UUID studentId,
             StudentRequestStatus status,
-            UUID typeId,
+            Set<UUID> typeIds,
             Instant fromInstant,
             Instant toInstant) {
         return (root, query, criteriaBuilder) -> {
@@ -396,8 +653,8 @@ public class StudentRequestService {
             if (status != null) {
                 predicates.add(criteriaBuilder.equal(root.get("status"), status));
             }
-            if (typeId != null) {
-                predicates.add(criteriaBuilder.equal(root.get("typeId"), typeId));
+            if (typeIds != null && !typeIds.isEmpty()) {
+                predicates.add(root.get("typeId").in(typeIds));
             }
             if (fromInstant != null) {
                 predicates.add(criteriaBuilder.greaterThanOrEqualTo(root.get("createdAt"), fromInstant));
@@ -425,37 +682,100 @@ public class StudentRequestService {
             RequestTypeEntity requestType) {
         return new StudentRequestListResponse.Item(
                 request.getRequestNumber(),
-                requestType == null ? null : requestType.getCode(),
-                requestType == null ? null : requestType.getName(),
+                requestType == null ? null : canonicalRequestTypeCode(requestType),
+                requestType == null ? null : canonicalRequestTypeName(requestType),
                 request.getTitle(),
-                request.getStatus().name(),
+                statusCode(request.getStatus()),
                 statusLabel(request.getStatus()),
-                toOffsetDateTime(request.getCreatedAt()),
-                toOffsetDateTime(request.getUpdatedAt()));
+                request.getCreatedAt(),
+                request.getUpdatedAt());
     }
 
     private RequestTypeResponse toRequestTypeResponse(RequestTypeEntity requestType) {
         return new RequestTypeResponse(
-                requestType.getCode(),
-                requestType.getName(),
-                requestType.getDescription(),
-                requestType.getIcon(),
+                canonicalRequestTypeCode(requestType),
+                canonicalRequestTypeName(requestType),
+                canonicalRequestTypeDescription(requestType),
+                canonicalRequestTypeIconName(requestType),
                 requestType.isRequiresDateRange(),
                 requestType.isRequiresAttachment(),
-                toRequestTypeFields(requestType.getFields()));
+                toRequestTypeFields(requestType));
     }
 
-    private List<RequestTypeResponse.Field> toRequestTypeFields(List<RequestTypeFieldValue> fields) {
+    private List<RequestTypeResponse.Field> toRequestTypeFields(RequestTypeEntity requestType) {
+        String code = canonicalRequestTypeCode(requestType);
+        if ("absence".equals(code)) {
+            return List.of(new RequestTypeResponse.Field(
+                    "reason",
+                    "L\u00fd do ngh\u1ec9",
+                    "textarea",
+                    true));
+        }
+        if ("confirmation".equals(code)) {
+            return List.of(new RequestTypeResponse.Field(
+                    "purpose",
+                    "M\u1ee5c \u0111\u00edch x\u00e1c nh\u1eadn",
+                    "text",
+                    true));
+        }
+        List<RequestTypeFieldValue> fields = requestType.getFields();
         if (fields == null || fields.isEmpty()) {
             return List.of();
         }
         return fields.stream()
+                .filter(field -> !isDateRangeField(field.getKey()))
                 .map(field -> new RequestTypeResponse.Field(
                         field.getKey(),
                         field.getLabel(),
                         field.getType(),
                         field.isRequired()))
                 .toList();
+    }
+
+    private boolean isDateRangeField(String fieldKey) {
+        if (fieldKey == null) {
+            return false;
+        }
+        return switch (fieldKey) {
+            case "fromDate", "toDate", "startDate", "endDate" -> true;
+            default -> false;
+        };
+    }
+
+    private String canonicalRequestTypeCode(RequestTypeEntity requestType) {
+        if (requestType == null || requestType.getCode() == null) {
+            return null;
+        }
+        String code = requestType.getCode().trim().toLowerCase(Locale.ROOT);
+        return switch (code) {
+            case "absence" -> "absence";
+            case "student_confirmation", "confirmation" -> "confirmation";
+            default -> code;
+        };
+    }
+
+    private String canonicalRequestTypeName(RequestTypeEntity requestType) {
+        return switch (canonicalRequestTypeCode(requestType)) {
+            case "absence" -> "\u0110\u01a1n xin ngh\u1ec9 h\u1ecdc";
+            case "confirmation" -> "\u0110\u01a1n x\u00e1c nh\u1eadn h\u1ecdc sinh";
+            default -> requestType.getName();
+        };
+    }
+
+    private String canonicalRequestTypeDescription(RequestTypeEntity requestType) {
+        return switch (canonicalRequestTypeCode(requestType)) {
+            case "absence" -> "G\u1eedi \u0111\u01a1n ngh\u1ec9 h\u1ecdc c\u00f3 ph\u00e9p cho gi\u00e1o vi\u00ean ch\u1ee7 nhi\u1ec7m.";
+            case "confirmation" -> "Y\u00eau c\u1ea7u x\u00e1c nh\u1eadn th\u00f4ng tin h\u1ecdc sinh \u0111ang theo h\u1ecdc.";
+            default -> requestType.getDescription();
+        };
+    }
+
+    private String canonicalRequestTypeIconName(RequestTypeEntity requestType) {
+        return switch (canonicalRequestTypeCode(requestType)) {
+            case "absence" -> "absence";
+            case "confirmation" -> "verified";
+            default -> requestType.getIcon();
+        };
     }
 
     private List<StudentRequestDetailResponse.Attachment> getAttachments(UUID requestId) {
@@ -486,7 +806,7 @@ public class StudentRequestService {
 
     private StudentRequestDetailResponse.History toHistoryResponse(RequestHistoryEntity history) {
         return new StudentRequestDetailResponse.History(
-                history.getStatus().name(),
+                statusCode(history.getStatus()),
                 statusLabel(history.getStatus()),
                 history.getNote(),
                 toOffsetDateTime(history.getCreatedAt()));
@@ -509,22 +829,18 @@ public class StudentRequestService {
             return StudentRequestStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException exception) {
             Map<String, List<String>> errors = new LinkedHashMap<>();
-            addError(errors, "status", "Trạng thái không hợp lệ");
+            addError(errors, "status", "Status is invalid");
             throw new RequestValidationException(errors);
         }
-    }
-
-    private String normalizeCode(String value) {
-        return value.trim().toUpperCase(Locale.ROOT);
     }
 
     private void validatePagination(int page, int limit) {
         Map<String, List<String>> errors = new LinkedHashMap<>();
         if (page < 1) {
-            addError(errors, "page", "Trang không hợp lệ");
+            addError(errors, "page", "Page is invalid");
         }
         if (limit < 1 || limit > 100) {
-            addError(errors, "limit", "Số lượng mỗi trang không hợp lệ");
+            addError(errors, "limit", "Limit is invalid");
         }
         if (!errors.isEmpty()) {
             throw new RequestValidationException(errors);
@@ -537,11 +853,9 @@ public class StudentRequestService {
 
     private String requiredMessage(RequestTypeResponse.Field field) {
         return switch (field.key()) {
-            case "reason" -> "Vui lòng nhập lý do";
-            case "purpose" -> "Vui lòng nhập mục đích xác nhận";
-            case "fromDate" -> "Vui lòng chọn từ ngày";
-            case "toDate" -> "Vui lòng chọn đến ngày";
-            default -> "Vui lòng nhập " + field.label().toLowerCase(Locale.ROOT);
+            case "reason" -> "Reason is required";
+            case "purpose" -> "Purpose is required";
+            default -> field.label() + " is required";
         };
     }
 
@@ -566,14 +880,29 @@ public class StudentRequestService {
         return instant == null ? null : instant.atZone(REQUEST_ZONE).toOffsetDateTime();
     }
 
+    private String statusCode(StudentRequestStatus status) {
+        return status.name().toLowerCase(Locale.ROOT);
+    }
+
     private String statusLabel(StudentRequestStatus status) {
         return switch (status) {
-            case SUBMITTED -> "Đã gửi";
-            case PROCESSING -> "Đang xử lý";
-            case APPROVED -> "Đã duyệt";
-            case REJECTED -> "Từ chối";
-            case CANCELLED -> "Đã hủy";
+            case SUBMITTED -> "\u0110\u00e3 g\u1eedi";
+            case PROCESSING -> "\u0110ang x\u1eed l\u00fd";
+            case APPROVED -> "\u0110\u00e3 duy\u1ec7t";
+            case REJECTED -> "T\u1eeb ch\u1ed1i";
+            case CANCELLED -> "\u0110\u00e3 h\u1ee7y";
         };
+    }
+
+    private String trimTrailingSlash(String value) {
+        if (!isPresent(value)) {
+            return "/uploads/student-requests";
+        }
+        String result = value.trim();
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     private ApiException notFound(String message) {

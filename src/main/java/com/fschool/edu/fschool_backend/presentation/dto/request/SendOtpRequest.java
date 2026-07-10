@@ -1,11 +1,11 @@
 package com.fschool.edu.fschool_backend.presentation.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fschool.edu.fschool_backend.application.command.SendOtpCommand;
-import jakarta.validation.constraints.NotBlank;
 
-public record SendOtpRequest(@NotBlank String phone) {
+public record SendOtpRequest(@JsonAlias("phone") String phoneNumber) {
 
     public SendOtpCommand toCommand() {
-        return new SendOtpCommand(phone);
+        return new SendOtpCommand(phoneNumber);
     }
 }

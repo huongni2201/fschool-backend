@@ -8,7 +8,7 @@ public class RequestValidationException extends RuntimeException {
     private final Map<String, List<String>> errors;
 
     public RequestValidationException(Map<String, List<String>> errors) {
-        super("Dữ liệu không hợp lệ");
+        super("Request is invalid");
         this.errors = errors;
     }
 

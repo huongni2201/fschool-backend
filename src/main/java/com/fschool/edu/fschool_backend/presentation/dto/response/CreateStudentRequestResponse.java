@@ -1,6 +1,6 @@
 package com.fschool.edu.fschool_backend.presentation.dto.response;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 
 public record CreateStudentRequestResponse(
         String id,
@@ -9,5 +9,6 @@ public record CreateStudentRequestResponse(
         String title,
         String status,
         String statusLabel,
-        OffsetDateTime createdAt) {
+        Instant createdAt,
+        Instant updatedAt) {
 }
