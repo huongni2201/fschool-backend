@@ -107,6 +107,19 @@ CREATE TABLE users
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+CREATE TABLE teacher_profiles
+(
+    id              UUID PRIMARY KEY      DEFAULT gen_random_uuid(),
+    user_id         UUID         NOT NULL UNIQUE
+        REFERENCES users (id)
+            ON DELETE CASCADE,
+    employee_code   VARCHAR(20)  NOT NULL UNIQUE,
+    full_name       VARCHAR(150) NOT NULL,
+    department_name VARCHAR(150),
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
 CREATE TABLE subjects
 (
     id             UUID PRIMARY KEY      DEFAULT gen_random_uuid(),
@@ -150,6 +163,51 @@ CREATE TABLE timetable_entries
                 day_of_week,
                 period_no
             )
+);
+
+CREATE TABLE teaching_assignments
+(
+    id          UUID PRIMARY KEY     DEFAULT gen_random_uuid(),
+    teacher_id UUID        NOT NULL
+        REFERENCES teacher_profiles (id)
+            ON DELETE CASCADE,
+    class_id   UUID        NOT NULL
+        REFERENCES classes (id)
+            ON DELETE CASCADE,
+    subject_id UUID        NOT NULL
+        REFERENCES subjects (id)
+            ON DELETE RESTRICT,
+    semester_id UUID
+        REFERENCES semesters (id)
+            ON DELETE CASCADE,
+    is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT uq_teaching_assignment
+        UNIQUE (teacher_id, class_id, subject_id, semester_id)
+);
+
+CREATE TABLE class_teacher_assignments
+(
+    id          UUID PRIMARY KEY     DEFAULT gen_random_uuid(),
+    teacher_id UUID        NOT NULL
+        REFERENCES teacher_profiles (id)
+            ON DELETE CASCADE,
+    class_id   UUID        NOT NULL
+        REFERENCES classes (id)
+            ON DELETE CASCADE,
+    role        VARCHAR(50) NOT NULL
+        CHECK (role IN (
+                        'HOMEROOM_TEACHER',
+                        'ASSISTANT_HOMEROOM_TEACHER'
+            )),
+    is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT uq_class_teacher_assignment
+        UNIQUE (teacher_id, class_id, role)
 );
 
 CREATE TABLE grades
@@ -473,6 +531,9 @@ CREATE INDEX idx_users_class
 CREATE INDEX idx_users_role
     ON users (role);
 
+CREATE INDEX idx_teacher_profiles_user
+    ON teacher_profiles (user_id);
+
 CREATE INDEX idx_timetable_class_semester_day
     ON timetable_entries (
                           class_id,
@@ -480,6 +541,15 @@ CREATE INDEX idx_timetable_class_semester_day
                           day_of_week,
                           period_no
         );
+
+CREATE INDEX idx_teaching_assignments_teacher
+    ON teaching_assignments (teacher_id, is_active);
+
+CREATE INDEX idx_teaching_assignments_class_subject
+    ON teaching_assignments (class_id, subject_id, is_active);
+
+CREATE INDEX idx_class_teacher_assignments_teacher_role
+    ON class_teacher_assignments (teacher_id, role, is_active);
 
 CREATE INDEX idx_grades_user_semester
     ON grades (

@@ -12,6 +12,8 @@ public interface UserJpaRepository extends JpaRepository<UserEntity, UUID> {
     Optional<UserEntity> findByStudentCode(String studentCode);
     boolean existsByPhone(String phone);
     boolean existsByStudentCode(String studentCode);
+    long countByClassId(UUID classId);
+    List<UserEntity> findByClassIdIn(Collection<UUID> classIds);
     List<UserEntity> findByGuardianPhone(String guardianPhone);
     List<UserEntity> findByGuardianPhoneIn(Collection<String> guardianPhones);
 }

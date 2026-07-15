@@ -1,7 +1,9 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.repository;
 
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.StudentRequestEntity;
+import com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,4 +19,6 @@ public interface StudentRequestJpaRepository
     boolean existsByRequestNumber(String requestNumber);
 
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(Instant startInclusive, Instant endExclusive);
+
+    long countByStudentIdInAndStatusIn(Collection<UUID> studentIds, Collection<StudentRequestStatus> statuses);
 }

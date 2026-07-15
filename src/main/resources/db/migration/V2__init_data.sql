@@ -3,6 +3,7 @@ BEGIN;
 INSERT INTO roles (code, display_name, description)
 VALUES ('STUDENT', 'Student', 'Student account'),
        ('PARENT', 'Parent', 'Parent or guardian account'),
+       ('TEACHER', 'Teacher', 'Teacher account'),
        ('ADMIN', 'Admin', 'Administrator account');
 
 INSERT INTO school_years (name, start_date, end_date, is_current)
@@ -44,6 +45,71 @@ CROSS JOIN (VALUES ('10A1', 10, 'A101'),
                    ('12A1', 12, 'A301'),
                    ('12A2', 12, 'A302')) AS class_data(name, grade_number, room_name)
 WHERE sy.name = '2026-2027';
+
+UPDATE classes
+SET homeroom_teacher_name = U&'Nguy\1EC5n V\0103n A',
+    updated_at = now()
+WHERE name = '10A1'
+  AND school_year_id = (SELECT id FROM school_years WHERE name = '2026-2027');
+
+INSERT INTO users (phone, password_hash, full_name, role, status)
+VALUES ('0900000001',
+        '$2a$10$ESxy3BvkCOwjvtRvPuU9XeBKrCjSzVrnwX6WgsjI8iUy/rlmPsSHK',
+        U&'Nguy\1EC5n V\0103n A',
+        'TEACHER',
+        'ACTIVE');
+
+INSERT INTO teacher_profiles (user_id, employee_code, full_name, department_name)
+SELECT u.id,
+       'GV001',
+       u.full_name,
+       U&'T\1ED5 To\00E1n'
+FROM users u
+WHERE u.phone = '0900000001';
+
+WITH teacher AS (
+    SELECT id
+    FROM teacher_profiles
+    WHERE employee_code = 'GV001'
+),
+target_classes AS (
+    SELECT c.id, c.name
+    FROM classes c
+    JOIN school_years sy ON sy.id = c.school_year_id
+    WHERE sy.name = '2026-2027'
+      AND c.name IN ('10A1', '10A2')
+),
+target_subject AS (
+    SELECT id
+    FROM subjects
+    WHERE code = 'MATH'
+)
+INSERT INTO teaching_assignments (teacher_id, class_id, subject_id)
+SELECT teacher.id,
+       target_classes.id,
+       target_subject.id
+FROM teacher
+CROSS JOIN target_classes
+CROSS JOIN target_subject;
+
+WITH teacher AS (
+    SELECT id
+    FROM teacher_profiles
+    WHERE employee_code = 'GV001'
+),
+target_class AS (
+    SELECT c.id
+    FROM classes c
+    JOIN school_years sy ON sy.id = c.school_year_id
+    WHERE sy.name = '2026-2027'
+      AND c.name = '10A1'
+)
+INSERT INTO class_teacher_assignments (teacher_id, class_id, role)
+SELECT teacher.id,
+       target_class.id,
+       'HOMEROOM_TEACHER'
+FROM teacher
+CROSS JOIN target_class;
 
 INSERT INTO news_posts (title, summary, content, thumbnail_url, status, published_at)
 VALUES ('Chao mung nam hoc 2026-2027',
@@ -372,6 +438,20 @@ FROM (VALUES ('Cap nhat diem giua ky', 'Diem giua ky mot so mon hoc da duoc cap 
              ('Bai tap moi', 'Lop 10A1 co bai tap moi can hoan thanh.', 'ASSIGNMENT', '/assignments'),
              ('Thoi khoa bieu hoc ky 2', 'Thoi khoa bieu hoc ky 2 da san sang.', 'TIMETABLE', '/timetable')) AS notification_data(title, body, notification_type, deep_link)
 CROSS JOIN target_user tu;
+
+WITH teacher_user AS (
+    SELECT u.id
+    FROM users u
+    JOIN teacher_profiles tp ON tp.user_id = u.id
+    WHERE tp.employee_code = 'GV001'
+)
+INSERT INTO notifications (user_id, title, body, notification_type, deep_link)
+SELECT teacher_user.id,
+       U&'H\1ECDp chuy\00EAn m\00F4n',
+       U&'T\1ED5 To\00E1n h\1ECDp l\00FAc 15:00 t\1EA1i ph\00F2ng gi\00E1o vi\00EAn.',
+       'INFO',
+       '/teacher/dashboard'
+FROM teacher_user;
 
 WITH target_user AS (
     SELECT id

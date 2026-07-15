@@ -4,6 +4,7 @@ public final class RoleCodes {
 
     public static final String STUDENT = "STUDENT";
     public static final String PARENT = "PARENT";
+    public static final String TEACHER = "TEACHER";
 
     private RoleCodes() {
     }

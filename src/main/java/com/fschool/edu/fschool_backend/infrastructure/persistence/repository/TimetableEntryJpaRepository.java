@@ -1,6 +1,7 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.repository;
 
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TimetableEntryEntity;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,4 +10,9 @@ public interface TimetableEntryJpaRepository extends JpaRepository<TimetableEntr
     List<TimetableEntryEntity> findByClassIdAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(UUID classId, UUID semesterId);
     List<TimetableEntryEntity> findByClassIdAndSemesterIdAndDayOfWeekOrderByPeriodNoAsc(
             UUID classId, UUID semesterId, Short dayOfWeek);
+    List<TimetableEntryEntity> findByClassIdInAndSemesterIdAndSubjectIdInAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
+            Collection<UUID> classIds,
+            UUID semesterId,
+            Collection<UUID> subjectIds,
+            Short dayOfWeek);
 }
