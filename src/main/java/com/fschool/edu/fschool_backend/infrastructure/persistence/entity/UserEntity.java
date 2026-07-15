@@ -1,12 +1,14 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.entity;
 
 import com.fschool.edu.fschool_backend.domain.enums.Gender;
-import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.domain.enums.UserStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.Instant;
@@ -31,7 +33,7 @@ public class UserEntity extends AuditableEntity {
     @Column(name = "password_hash", nullable = false)
     private String passwordHash;
 
-    @Column(name = "student_code", nullable = false, unique = true, length = 20)
+    @Column(name = "student_code", unique = true, length = 20)
     private String studentCode;
 
     @Column(name = "full_name", nullable = false, length = 150)
@@ -56,9 +58,9 @@ public class UserEntity extends AuditableEntity {
     @Column(name = "guardian_phone", length = 20)
     private String guardianPhone;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private UserRole role = UserRole.STUDENT;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "role", referencedColumnName = "code", nullable = false)
+    private RoleEntity role;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

@@ -14,8 +14,8 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${POSTGRES_DB:-fschool}
-      DB_USERNAME: ${POSTGRES_USER:-fschool}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-fschool_password}
+      DB_USERNAME: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-1234567}
       TZ: Asia/Ho_Chi_Minh
     ports:
       - "${APP_PORT:-8080}:8080"
@@ -26,13 +26,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-fschool}
-      POSTGRES_USER: ${POSTGRES_USER:-fschool}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fschool_password}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
       TZ: Asia/Ho_Chi_Minh
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fschool} -d ${POSTGRES_DB:-fschool}"]
       interval: 10s

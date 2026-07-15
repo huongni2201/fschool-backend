@@ -13,6 +13,7 @@ import com.fschool.edu.fschool_backend.presentation.dto.response.RegisterRespons
 import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
     private static final String SEND_OTP_SUCCESS_MESSAGE = "M\u00E3 OTP \u0111\u00E3 \u0111\u01B0\u1EE3c g\u1EEDi";
@@ -36,10 +38,6 @@ public class AuthController {
             "Kh\u00F4ng th\u1EC3 \u0111\u1EB7t l\u1EA1i m\u1EADt kh\u1EA9u";
 
     private final AuthService authService;
-
-    public AuthController(AuthService authService) {
-        this.authService = authService;
-    }
 
     @PostMapping("/login")
     ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {

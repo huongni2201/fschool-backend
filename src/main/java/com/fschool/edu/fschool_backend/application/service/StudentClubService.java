@@ -25,11 +25,13 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class StudentClubService {
 
   private static final ZoneId CLUB_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -40,15 +42,6 @@ public class StudentClubService {
   private final ClubJpaRepository clubRepository;
   private final ClubRegistrationJpaRepository registrationRepository;
   private final UserJpaRepository userRepository;
-
-  public StudentClubService(
-      ClubJpaRepository clubRepository,
-      ClubRegistrationJpaRepository registrationRepository,
-      UserJpaRepository userRepository) {
-    this.clubRepository = clubRepository;
-    this.registrationRepository = registrationRepository;
-    this.userRepository = userRepository;
-  }
 
   @Transactional(readOnly = true)
   public StudentClubListResponse getStudentClubs(UUID studentId) {
@@ -268,7 +261,7 @@ public class StudentClubService {
     if (club.getWeekday() == null || club.getStartTime() == null || club.getEndTime() == null) {
       return null;
     }
-    return club.getWeekday() + " \u00b7 " + formatTime(club.getStartTime()) + " - " + formatTime(club.getEndTime());
+    return club.getWeekday() + " · " + formatTime(club.getStartTime()) + " - " + formatTime(club.getEndTime());
   }
 
   private String formatTime(LocalTime time) {

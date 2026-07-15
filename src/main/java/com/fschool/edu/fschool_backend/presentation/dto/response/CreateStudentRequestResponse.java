@@ -1,6 +1,8 @@
 package com.fschool.edu.fschool_backend.presentation.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
+import java.util.Locale;
 
 public record CreateStudentRequestResponse(
         String id,
@@ -11,4 +13,9 @@ public record CreateStudentRequestResponse(
         String statusLabel,
         Instant createdAt,
         Instant updatedAt) {
+
+    @JsonProperty("requestTypeCode")
+    public String requestTypeCode() {
+        return typeCode == null ? null : typeCode.toUpperCase(Locale.ROOT);
+    }
 }

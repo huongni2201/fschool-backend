@@ -3,9 +3,6 @@ package com.fschool.edu.fschool_backend.presentation.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fschool.edu.fschool_backend.application.service.StudentRequestService;
-import com.fschool.edu.fschool_backend.domain.enums.UserRole;
-import com.fschool.edu.fschool_backend.infrastructure.security.CurrentUser;
-import com.fschool.edu.fschool_backend.infrastructure.security.TokenService;
 import com.fschool.edu.fschool_backend.presentation.dto.request.CreateStudentRequestRequest;
 import com.fschool.edu.fschool_backend.presentation.dto.response.ApiResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.CreateStudentRequestDataResponse;
@@ -20,14 +17,16 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -36,37 +35,29 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping({"/api/v1/students/me", "/students/me"})
+@PreAuthorize("hasRole('STUDENT')")
+@RequiredArgsConstructor
 public class StudentRequestController {
 
-    private final TokenService tokenService;
     private final StudentRequestService requestService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    public StudentRequestController(
-            TokenService tokenService,
-            StudentRequestService requestService) {
-        this.tokenService = tokenService;
-        this.requestService = requestService;
-    }
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/request-types")
-    ApiResponse<StudentRequestTypesResponse> requestTypes(
-            @RequestHeader(name = "Authorization", required = false) String authorization) {
-        requireStudentId(authorization);
+    ApiResponse<StudentRequestTypesResponse> requestTypes() {
         List<RequestTypeResponse> requestTypes = requestService.getRequestTypes();
         return ApiResponse.ok(new StudentRequestTypesResponse(requestTypes), "OK");
     }
 
     @GetMapping("/requests")
     ApiResponse<StudentRequestListResponse> requests(
-            @RequestHeader(name = "Authorization", required = false) String authorization,
+            Authentication authentication,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String typeCode,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
-        UUID studentId = requireStudentId(authorization);
+        UUID studentId = currentUserId(authentication);
         return ApiResponse.ok(
                 requestService.getStudentRequests(studentId, page, limit, status, typeCode, fromDate, toDate),
                 "OK");
@@ -74,17 +65,17 @@ public class StudentRequestController {
 
     @GetMapping("/requests/{requestId}")
     ApiResponse<StudentRequestDetailResponse> requestDetail(
-            @RequestHeader(name = "Authorization", required = false) String authorization,
+            Authentication authentication,
             @PathVariable String requestId) {
-        UUID studentId = requireStudentId(authorization);
+        UUID studentId = currentUserId(authentication);
         return ApiResponse.ok(requestService.getStudentRequest(studentId, requestId), "OK");
     }
 
     @PostMapping(value = "/requests", consumes = MediaType.APPLICATION_JSON_VALUE)
     ApiResponse<CreateStudentRequestDataResponse> createJsonRequest(
-            @RequestHeader(name = "Authorization", required = false) String authorization,
+            Authentication authentication,
             @RequestBody(required = false) CreateStudentRequestRequest request) {
-        UUID studentId = requireStudentId(authorization);
+        UUID studentId = currentUserId(authentication);
         CreateStudentRequestResponse response = requestService.createStudentRequest(studentId, request);
         return ApiResponse.ok(
                 new CreateStudentRequestDataResponse(response),
@@ -93,7 +84,7 @@ public class StudentRequestController {
 
     @PostMapping(value = "/requests", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ApiResponse<CreateStudentRequestDataResponse> createMultipartRequest(
-            @RequestHeader(name = "Authorization", required = false) String authorization,
+            Authentication authentication,
             @RequestParam(required = false) String requestTypeCode,
             @RequestParam(required = false) String title,
             @RequestParam(required = false) String content,
@@ -101,7 +92,7 @@ public class StudentRequestController {
             @RequestParam(required = false) String endDate,
             @RequestParam(required = false) String fields,
             @RequestPart(name = "attachments", required = false) List<MultipartFile> attachments) {
-        UUID studentId = requireStudentId(authorization);
+        UUID studentId = currentUserId(authentication);
         CreateStudentRequestRequest request = new CreateStudentRequestRequest(
                 requestTypeCode,
                 title,
@@ -130,11 +121,7 @@ public class StudentRequestController {
         }
     }
 
-    private UUID requireStudentId(String authorization) {
-        CurrentUser currentUser = tokenService.requireUser(authorization);
-        if (currentUser.role() != UserRole.STUDENT) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Student requests are only available for students");
-        }
-        return currentUser.id();
+    private UUID currentUserId(Authentication authentication) {
+        return UUID.fromString(authentication.getName());
     }
 }

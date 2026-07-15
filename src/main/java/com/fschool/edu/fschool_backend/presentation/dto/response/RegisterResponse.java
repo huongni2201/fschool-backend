@@ -1,7 +1,6 @@
 package com.fschool.edu.fschool_backend.presentation.dto.response;
 
 import com.fschool.edu.fschool_backend.domain.enums.Gender;
-import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.domain.enums.UserStatus;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -18,6 +17,6 @@ public record RegisterResponse(
         String address,
         String guardianName,
         String guardianPhone,
-        UserRole role,
+        String role,
         UserStatus status) {
 }

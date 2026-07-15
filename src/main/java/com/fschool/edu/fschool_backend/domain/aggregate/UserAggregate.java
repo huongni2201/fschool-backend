@@ -1,7 +1,7 @@
 package com.fschool.edu.fschool_backend.domain.aggregate;
 
+import com.fschool.edu.fschool_backend.domain.constants.RoleCodes;
 import com.fschool.edu.fschool_backend.domain.enums.Gender;
-import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.domain.enums.UserStatus;
 import com.fschool.edu.fschool_backend.domain.exception.BusinessRuleViolationException;
 import com.fschool.edu.fschool_backend.domain.exception.DomainValidationException;
@@ -28,7 +28,7 @@ public class UserAggregate extends AuditableAggregateRoot {
     private String address;
     private String guardianName;
     private PhoneNumber guardianPhone;
-    private UserRole role;
+    private String role;
     private UserStatus status;
     private Instant lastLoginAt;
 
@@ -45,7 +45,7 @@ public class UserAggregate extends AuditableAggregateRoot {
             String address,
             String guardianName,
             PhoneNumber guardianPhone,
-            UserRole role,
+            String role,
             UserStatus status,
             Instant lastLoginAt,
             AuditInfo auditInfo) {
@@ -61,13 +61,13 @@ public class UserAggregate extends AuditableAggregateRoot {
         this.address = normalizeOptional(address, 255, "Address");
         this.guardianName = normalizeOptional(guardianName, 150, "Guardian name");
         this.guardianPhone = guardianPhone;
-        this.role = role == null ? UserRole.STUDENT : role;
+        this.role = role == null ? RoleCodes.STUDENT : role;
         this.status = status == null ? UserStatus.ACTIVE : status;
         this.lastLoginAt = lastLoginAt;
     }
 
     public boolean isStudent() {
-        return role == UserRole.STUDENT;
+        return RoleCodes.STUDENT.equals(role);
     }
 
     public boolean canLogin() {

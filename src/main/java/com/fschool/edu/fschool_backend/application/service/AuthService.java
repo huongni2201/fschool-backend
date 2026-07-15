@@ -5,20 +5,22 @@ import com.fschool.edu.fschool_backend.application.command.RegisterCommand;
 import com.fschool.edu.fschool_backend.application.command.ResetPasswordCommand;
 import com.fschool.edu.fschool_backend.application.command.SendOtpCommand;
 import com.fschool.edu.fschool_backend.application.command.VerifyOtpCommand;
+import com.fschool.edu.fschool_backend.domain.constants.RoleCodes;
 import com.fschool.edu.fschool_backend.domain.enums.OtpPurpose;
-import com.fschool.edu.fschool_backend.domain.enums.UserRole;
 import com.fschool.edu.fschool_backend.domain.enums.UserStatus;
+import com.fschool.edu.fschool_backend.infrastructure.config.AuthProperties;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.OtpChallengeEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RoleEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.OtpChallengeJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.RoleJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.security.PasswordService;
+import com.fschool.edu.fschool_backend.infrastructure.security.CustomUserDetails;
+import com.fschool.edu.fschool_backend.infrastructure.security.JwtService;
 import com.fschool.edu.fschool_backend.infrastructure.security.ResetTokenService;
-import com.fschool.edu.fschool_backend.infrastructure.security.TokenService;
 import com.fschool.edu.fschool_backend.presentation.dto.response.LoginResponse;
-import com.fschool.edu.fschool_backend.presentation.dto.response.LoginUserResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.RegisterResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.SendOtpResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpResponse;
@@ -27,15 +29,23 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class AuthService {
 
     private static final Pattern OTP_PATTERN = Pattern.compile("\\d{4,8}");
@@ -52,84 +62,85 @@ public class AuthService {
     private final UserJpaRepository userRepository;
     private final ClassJpaRepository classRepository;
     private final OtpChallengeJpaRepository otpRepository;
-    private final PasswordService passwordService;
-    private final TokenService tokenService;
+    private final RoleJpaRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtService jwtService;
     private final ResetTokenService resetTokenService;
-    private final String devOtpCode;
-    private final long otpTtlSeconds;
-    private final long otpResendCooldownSeconds;
-
-    public AuthService(
-            UserJpaRepository userRepository,
-            ClassJpaRepository classRepository,
-            OtpChallengeJpaRepository otpRepository,
-            PasswordService passwordService,
-            TokenService tokenService,
-            ResetTokenService resetTokenService,
-            @Value("${app.auth.dev-otp-code:123456}") String devOtpCode,
-            @Value("${app.auth.otp-ttl-seconds:300}") long otpTtlSeconds,
-            @Value("${app.auth.otp-resend-cooldown-seconds:60}") long otpResendCooldownSeconds) {
-        this.userRepository = userRepository;
-        this.classRepository = classRepository;
-        this.otpRepository = otpRepository;
-        this.passwordService = passwordService;
-        this.tokenService = tokenService;
-        this.resetTokenService = resetTokenService;
-        this.devOtpCode = devOtpCode;
-        this.otpTtlSeconds = otpTtlSeconds;
-        this.otpResendCooldownSeconds = otpResendCooldownSeconds;
-    }
+    private final AuthProperties authProperties;
 
     @Transactional(readOnly = true)
     public LoginResponse login(LoginCommand command) {
-        UserEntity user = userRepository.findByPhone(command.username())
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Phone or password is invalid"));
-        if (user.getStatus() != UserStatus.ACTIVE || !passwordService.matches(command.password(), user.getPasswordHash())) {
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(
+                    command.username(),
+                    command.password()));
+        } catch (AuthenticationException exception) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Phone or password is invalid");
         }
-        String accessToken = tokenService.createAccessToken(user.getId(), user.getRole());
+
+        CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
+        UserEntity user = userRepository.findById(principal.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Phone or password is invalid"));
+        String roleCode = roleCode(user);
+        String accessToken = jwtService.generateAccessToken(principal);
+        String refreshToken = jwtService.generateRefreshToken(principal);
         String className = user.getClassId() == null
                 ? null
                 : classRepository.findById(user.getClassId()).map(ClassEntity::getName).orElse(null);
-        LoginUserResponse loginUser = new LoginUserResponse(
-                user.getId(),
-                user.getStudentCode(),
-                user.getFullName(),
-                user.getRole(),
-                className);
-        return new LoginResponse(accessToken, "Bearer", tokenService.accessTokenTtlSeconds(), loginUser);
+        String responseRole = responseRole(roleCode);
+        return LoginResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .tokenType("Bearer")
+                .expiresIn(jwtService.accessTokenTtlSeconds())
+                .role(responseRole)
+                .userId(user.getId())
+                .studentCode(user.getStudentCode())
+                .fullName(user.getFullName())
+                .className(className)
+                .build();
     }
 
     @Transactional
     public RegisterResponse register(RegisterCommand command) {
-        userRepository.findByPhone(command.phone())
-                .ifPresent(user -> {
-                    throw new ApiException(HttpStatus.CONFLICT, "Phone already exists");
-                });
-        userRepository.findByStudentCode(command.studentCode())
-                .ifPresent(user -> {
-                    throw new ApiException(HttpStatus.CONFLICT, "Student code already exists");
-                });
+        String phone = normalizePhone(command.phone());
+        String studentCode = normalizeOptionalText(command.studentCode());
+        String guardianPhone = normalizePhone(command.guardianPhone());
+        if (userRepository.existsByPhone(phone)) {
+            throw new ApiException(HttpStatus.CONFLICT, "Phone already exists");
+        }
+        if (studentCode != null && userRepository.existsByStudentCode(studentCode)) {
+            throw new ApiException(HttpStatus.CONFLICT, "Student code already exists");
+        }
+        if (studentCode != null && !hasText(guardianPhone)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Guardian phone is required for student account");
+        }
         if (command.classId() != null && !classRepository.existsById(command.classId())) {
             throw new ApiException(HttpStatus.NOT_FOUND, "Class was not found");
         }
 
         UserEntity user = new UserEntity();
-        user.setPhone(command.phone());
-        user.setPasswordHash(passwordService.encode(command.password()));
-        user.setStudentCode(command.studentCode());
-        user.setFullName(command.fullName());
+        user.setPhone(phone);
+        user.setPasswordHash(passwordEncoder.encode(command.password()));
+        user.setStudentCode(studentCode);
+        user.setFullName(normalizeText(command.fullName()));
         user.setClassId(command.classId());
         user.setDateOfBirth(command.dateOfBirth());
         user.setGender(command.gender());
-        user.setAvatarUrl(command.avatarUrl());
-        user.setAddress(command.address());
-        user.setGuardianName(command.guardianName());
-        user.setGuardianPhone(command.guardianPhone());
-        user.setRole(UserRole.STUDENT);
+        user.setAvatarUrl(normalizeText(command.avatarUrl()));
+        user.setAddress(normalizeText(command.address()));
+        user.setGuardianName(normalizeText(command.guardianName()));
+        user.setGuardianPhone(guardianPhone);
+        user.setRole(requireRole(registerRole(studentCode)));
         user.setStatus(UserStatus.ACTIVE);
 
-        return toRegisterResponse(userRepository.save(user));
+        try {
+            return toRegisterResponse(userRepository.saveAndFlush(user));
+        } catch (DataIntegrityViolationException exception) {
+            throw registerConflict(exception);
+        }
     }
 
     @Transactional
@@ -144,12 +155,12 @@ public class AuthService {
         OtpChallengeEntity challenge = new OtpChallengeEntity();
         challenge.setPhone(phone);
         challenge.setPurpose(OtpPurpose.FORGOT_PASSWORD);
-        challenge.setOtpHash(hash(devOtpCode));
-        challenge.setExpiresAt(Instant.now().plusSeconds(otpTtlSeconds));
+        challenge.setOtpHash(hash(authProperties.getDevOtpCode()));
+        challenge.setExpiresAt(Instant.now().plusSeconds(authProperties.getOtpTtlSeconds()));
         challenge.setAttemptCount(0);
         challenge.setMaxAttempts(5);
         OtpChallengeEntity saved = otpRepository.save(challenge);
-        return new SendOtpResponse(saved.getId(), otpTtlSeconds);
+        return new SendOtpResponse(saved.getId(), authProperties.getOtpTtlSeconds());
     }
 
     @Transactional
@@ -214,7 +225,7 @@ public class AuthService {
             validateForgotPasswordOtp(challenge, otp, now, RESET_PASSWORD_FAILED_MESSAGE, true, true);
         }
 
-        user.setPasswordHash(passwordService.encode(command.newPassword()));
+        user.setPasswordHash(passwordEncoder.encode(command.newPassword()));
         userRepository.save(user);
     }
 
@@ -246,10 +257,10 @@ public class AuthService {
     }
 
     private void enforceOtpSendCooldown(String phone) {
-        if (otpResendCooldownSeconds <= 0) {
+        if (authProperties.getOtpResendCooldownSeconds() <= 0) {
             return;
         }
-        Instant resendAllowedAfter = Instant.now().minusSeconds(otpResendCooldownSeconds);
+        Instant resendAllowedAfter = Instant.now().minusSeconds(authProperties.getOtpResendCooldownSeconds());
         latestForgotPasswordChallenge(phone)
                 .map(OtpChallengeEntity::getCreatedAt)
                 .filter(createdAt -> createdAt != null && createdAt.isAfter(resendAllowedAfter))
@@ -317,11 +328,27 @@ public class AuthService {
     }
 
     private String normalizePhone(String phone) {
-        return normalizeText(phone);
+        String normalized = normalizeText(phone);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.replaceAll("[\\s.()-]", "");
+        if (normalized.startsWith("+84")) {
+            return "0" + normalized.substring(3);
+        }
+        if (normalized.startsWith("84") && normalized.length() == 11) {
+            return "0" + normalized.substring(2);
+        }
+        return normalized;
     }
 
     private String normalizeText(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private String normalizeOptionalText(String value) {
+        String normalized = normalizeText(value);
+        return hasText(normalized) ? normalized : null;
     }
 
     private boolean hasText(String value) {
@@ -350,7 +377,42 @@ public class AuthService {
                 user.getAddress(),
                 user.getGuardianName(),
                 user.getGuardianPhone(),
-                user.getRole(),
+                responseRole(roleCode(user)),
                 user.getStatus());
+    }
+
+    private RoleEntity requireRole(String roleCode) {
+        return roleRepository.findById(roleCode)
+                .orElseThrow(() -> new IllegalStateException("Role was not found: " + roleCode));
+    }
+
+    private String roleCode(UserEntity user) {
+        RoleEntity role = user.getRole();
+        if (role == null || !hasText(role.getCode())) {
+            throw new IllegalStateException("User role is missing");
+        }
+        return role.getCode();
+    }
+
+    private String responseRole(String roleCode) {
+        return roleCode == null ? null : roleCode.toLowerCase(Locale.ROOT);
+    }
+
+    private String registerRole(String studentCode) {
+        return studentCode == null ? RoleCodes.PARENT : RoleCodes.STUDENT;
+    }
+
+    private ApiException registerConflict(DataIntegrityViolationException exception) {
+        String message = exception.getMostSpecificCause().getMessage();
+        if (message != null) {
+            String lowerMessage = message.toLowerCase(Locale.ROOT);
+            if (lowerMessage.contains("phone")) {
+                return new ApiException(HttpStatus.CONFLICT, "Phone already exists");
+            }
+            if (lowerMessage.contains("student_code")) {
+                return new ApiException(HttpStatus.CONFLICT, "Student code already exists");
+            }
+        }
+        return new ApiException(HttpStatus.CONFLICT, "User already exists");
     }
 }

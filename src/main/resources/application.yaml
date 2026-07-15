@@ -7,3 +7,10 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 50MB
+
+app:
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:fschool-backend}
+      access-token-ttl: ${ACCESS_TOKEN_TTL:1h}
+      refresh-token-ttl: ${REFRESH_TOKEN_TTL:30d}

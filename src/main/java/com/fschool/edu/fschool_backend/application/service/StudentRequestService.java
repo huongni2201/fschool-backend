@@ -1,6 +1,7 @@
 package com.fschool.edu.fschool_backend.application.service;
 
 import com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus;
+import com.fschool.edu.fschool_backend.infrastructure.config.StudentRequestUploadProperties;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestAttachmentEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.RequestHistoryEntity;
@@ -47,7 +48,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Value;
+
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -59,6 +61,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
+@RequiredArgsConstructor
 public class StudentRequestService {
 
     private static final ZoneId REQUEST_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -79,30 +82,7 @@ public class StudentRequestService {
     private final UploadedFileJpaRepository uploadedFileRepository;
     private final UserJpaRepository userRepository;
     private final ClassJpaRepository classRepository;
-    private final Path studentRequestUploadDir;
-    private final String studentRequestPublicPath;
-
-    public StudentRequestService(
-            RequestTypeJpaRepository requestTypeRepository,
-            StudentRequestJpaRepository requestRepository,
-            RequestAttachmentJpaRepository attachmentRepository,
-            RequestHistoryJpaRepository historyRepository,
-            UploadedFileJpaRepository uploadedFileRepository,
-            UserJpaRepository userRepository,
-            ClassJpaRepository classRepository,
-            @Value("${app.upload.student-request-dir:uploads/student-requests}") String studentRequestUploadDir,
-            @Value("${app.upload.student-request-public-path:/uploads/student-requests}")
-                    String studentRequestPublicPath) {
-        this.requestTypeRepository = requestTypeRepository;
-        this.requestRepository = requestRepository;
-        this.attachmentRepository = attachmentRepository;
-        this.historyRepository = historyRepository;
-        this.uploadedFileRepository = uploadedFileRepository;
-        this.userRepository = userRepository;
-        this.classRepository = classRepository;
-        this.studentRequestUploadDir = Paths.get(studentRequestUploadDir).toAbsolutePath().normalize();
-        this.studentRequestPublicPath = trimTrailingSlash(studentRequestPublicPath);
-    }
+    private final StudentRequestUploadProperties uploadProperties;
 
     @Transactional(readOnly = true)
     public List<RequestTypeResponse> getRequestTypes() {
@@ -416,6 +396,7 @@ public class StudentRequestService {
         if (files.isEmpty()) {
             return List.of();
         }
+        Path studentRequestUploadDir = uploadProperties.studentRequestDirPath();
         try {
             Files.createDirectories(studentRequestUploadDir);
         } catch (IOException exception) {
@@ -433,6 +414,7 @@ public class StudentRequestService {
                 .orElseThrow(() -> new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Attachment file type is not supported"));
         String fileCode = generateFileCode();
         String storedFileName = fileCode + "." + extension;
+        Path studentRequestUploadDir = uploadProperties.studentRequestDirPath();
         Path target = studentRequestUploadDir.resolve(storedFileName).normalize();
         if (!target.startsWith(studentRequestUploadDir)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Attachment file name is invalid");
@@ -488,10 +470,11 @@ public class StudentRequestService {
     }
 
     private String fileUrl(String storedFileName) {
-        if (studentRequestPublicPath.isBlank()) {
+        String publicPath = trimTrailingSlash(uploadProperties.getStudentRequestPublicPath());
+        if (publicPath.isBlank()) {
             return storedFileName;
         }
-        return studentRequestPublicPath + "/" + storedFileName;
+        return publicPath + "/" + storedFileName;
     }
 
     private String contentType(MultipartFile file, String extension) {
