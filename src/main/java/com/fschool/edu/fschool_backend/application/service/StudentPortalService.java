@@ -861,7 +861,7 @@ public class StudentPortalService {
 
     private String notificationCategory(String notificationType) {
         return switch (notificationType) {
-            case "ACADEMIC", "GRADE", "SCORE", "EXAM", "ASSIGNMENT", "TIMETABLE", "SCHEDULE" -> "academic";
+            case "ACADEMIC", "GRADE", "SCORE", "EXAM", "TIMETABLE", "SCHEDULE" -> "academic";
             case "TUITION", "FEE", "PAYMENT" -> "tuition";
             case "REQUEST", "FORM", "APPLICATION" -> "request";
             case "SYSTEM", "ACCOUNT", "SECURITY" -> "system";
@@ -877,7 +877,6 @@ public class StudentPortalService {
         return switch (notificationType) {
             case "GRADE", "SCORE" -> "Xem \u0111i\u1EC3m";
             case "EXAM" -> "Xem l\u1ECBch thi";
-            case "ASSIGNMENT" -> "Xem b\u00E0i t\u1EADp";
             case "TIMETABLE", "SCHEDULE" -> "Xem th\u1EDDi kh\u00F3a bi\u1EC3u";
             case "TUITION", "FEE", "PAYMENT" -> "Xem h\u1ECDc ph\u00ED";
             case "REQUEST", "FORM", "APPLICATION" -> "Xem \u0111\u01A1n";

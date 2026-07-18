@@ -1,18 +1,14 @@
 package com.fschool.edu.fschool_backend.application.service;
 
-import com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassTeacherAssignmentEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ExamEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.NotificationEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ExamEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SchoolYearEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SemesterEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SubjectEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TeacherProfileEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TeachingAssignmentEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TimetableEntryEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassTeacherAssignmentJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ExamJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.NotificationJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SchoolYearJpaRepository;
@@ -20,22 +16,16 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.Sem
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.StudentRequestJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SubjectJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TeacherProfileJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TeachingAssignmentJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TimetableEntryJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
 import com.fschool.edu.fschool_backend.presentation.dto.response.TeacherDashboardResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -48,57 +38,40 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class TeacherDashboardService {
 
-    private static final String HOMEROOM_TEACHER = "HOMEROOM_TEACHER";
-    private static final ZoneId DASHBOARD_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-
     private final TeacherProfileJpaRepository teacherProfileRepository;
-    private final TeachingAssignmentJpaRepository teachingAssignmentRepository;
-    private final ClassTeacherAssignmentJpaRepository classTeacherAssignmentRepository;
-    private final ClassJpaRepository classRepository;
-    private final SubjectJpaRepository subjectRepository;
-    private final TimetableEntryJpaRepository timetableRepository;
-    private final ExamJpaRepository examRepository;
     private final NotificationJpaRepository notificationRepository;
-    private final UserJpaRepository userRepository;
-    private final StudentRequestJpaRepository requestRepository;
     private final SchoolYearJpaRepository schoolYearRepository;
     private final SemesterJpaRepository semesterRepository;
+    private final TimetableEntryJpaRepository timetableEntryRepository;
+    private final ClassJpaRepository classRepository;
+    private final SubjectJpaRepository subjectRepository;
+    private final ExamJpaRepository examRepository;
+    private final UserJpaRepository userRepository;
+    private final StudentRequestJpaRepository studentRequestRepository;
 
     @Transactional(readOnly = true)
     public TeacherDashboardResponse getDashboard(UUID userId) {
         TeacherProfileEntity teacher = teacherProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Teacher profile not found"));
-        List<TeachingAssignmentEntity> assignments =
-                teachingAssignmentRepository.findByTeacherIdAndActiveTrue(teacher.getId());
-        List<ClassTeacherAssignmentEntity> homeroomAssignments =
-                classTeacherAssignmentRepository.findByTeacherIdAndRoleAndActiveTrue(
-                        teacher.getId(), HOMEROOM_TEACHER);
-
-        Set<UUID> classIds = new LinkedHashSet<>();
-        assignments.forEach(assignment -> classIds.add(assignment.getClassId()));
-        homeroomAssignments.forEach(assignment -> classIds.add(assignment.getClassId()));
-        Map<UUID, ClassEntity> classes = entityMap(classRepository.findAllById(classIds), ClassEntity::getId);
-
-        Set<UUID> subjectIds = assignments.stream()
-                .map(TeachingAssignmentEntity::getSubjectId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<UUID, SubjectEntity> subjects = entityMap(subjectRepository.findAllById(subjectIds), SubjectEntity::getId);
-
-        long pendingApplications = pendingApplications(homeroomAssignments);
-        List<TeacherDashboardResponse.UpcomingExam> upcomingExams =
-                upcomingExams(assignments, classes, subjects);
+        Optional<SemesterEntity> currentSemester = currentSemester();
+        List<TimetableEntryEntity> semesterEntries = currentSemester
+                .map(semester -> timetableEntryRepository
+                        .findByTeacherNameIgnoreCaseAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(
+                                teacher.getFullName(), semester.getId()))
+                .orElseGet(List::of);
+        List<ClassEntity> homeroomClasses = classRepository.findByHomeroomTeacherNameIgnoreCase(teacher.getFullName());
+        List<ClassEntity> managedClasses = classesForEntries(semesterEntries, homeroomClasses);
+        List<SubjectEntity> subjects = subjectsForEntries(semesterEntries);
 
         return new TeacherDashboardResponse(
                 toTeacher(teacher),
-                todayClasses(assignments, classes, subjects),
-                managedClasses(assignments, classes, subjects),
-                homeroomClass(homeroomAssignments, classes).orElse(null),
-                pendingApplications,
-                upcomingExams,
+                todayClasses(teacher, currentSemester, managedClasses, subjects),
+                managedClasses(managedClasses, homeroomClasses, subjects),
+                homeroomClasses.stream().findFirst().map(this::toHomeroomClass).orElse(null),
+                pendingApplications(homeroomClasses),
+                upcomingExams(managedClasses, subjects),
                 recentNotifications(teacher.getUserId()),
-                tasks(pendingApplications, upcomingExams.size()));
+                tasks(teacher.getUserId(), homeroomClasses));
     }
 
     private TeacherDashboardResponse.Teacher toTeacher(TeacherProfileEntity teacher) {
@@ -107,141 +80,6 @@ public class TeacherDashboardService {
                 teacher.getFullName(),
                 teacher.getEmployeeCode(),
                 teacher.getDepartmentName());
-    }
-
-    private List<TeacherDashboardResponse.TodayClass> todayClasses(
-            List<TeachingAssignmentEntity> assignments,
-            Map<UUID, ClassEntity> classes,
-            Map<UUID, SubjectEntity> subjects) {
-        Optional<SemesterEntity> semester = currentSemester();
-        if (semester.isEmpty() || assignments.isEmpty()) {
-            return List.of();
-        }
-        LocalDate today = LocalDate.now(DASHBOARD_ZONE);
-        short dayOfWeek = (short) today.getDayOfWeek().getValue();
-        Set<UUID> classIds = assignments.stream()
-                .map(TeachingAssignmentEntity::getClassId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<UUID> subjectIds = assignments.stream()
-                .map(TeachingAssignmentEntity::getSubjectId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<String> assignmentPairs = assignmentPairs(assignments);
-        return timetableRepository
-                .findByClassIdInAndSemesterIdAndSubjectIdInAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
-                        classIds,
-                        semester.get().getId(),
-                        subjectIds,
-                        dayOfWeek)
-                .stream()
-                .filter(entry -> assignmentPairs.contains(pair(entry.getClassId(), entry.getSubjectId())))
-                .map(entry -> toTodayClass(entry, classes.get(entry.getClassId()), subjects.get(entry.getSubjectId())))
-                .toList();
-    }
-
-    private TeacherDashboardResponse.TodayClass toTodayClass(
-            TimetableEntryEntity entry,
-            ClassEntity clazz,
-            SubjectEntity subject) {
-        return new TeacherDashboardResponse.TodayClass(
-                entry.getClassId().toString(),
-                clazz == null ? null : clazz.getName(),
-                subjectClientId(entry.getSubjectId(), subject),
-                subject == null ? null : subject.getName(),
-                entry.getRoomName(),
-                entry.getStartTime().format(TIME_FORMATTER) + " - " + entry.getEndTime().format(TIME_FORMATTER),
-                "Ti\u1EBFt " + entry.getPeriodNo());
-    }
-
-    private List<TeacherDashboardResponse.ManagedClass> managedClasses(
-            List<TeachingAssignmentEntity> assignments,
-            Map<UUID, ClassEntity> classes,
-            Map<UUID, SubjectEntity> subjects) {
-        return assignments.stream()
-                .sorted(Comparator
-                        .comparing((TeachingAssignmentEntity assignment) ->
-                                className(classes.get(assignment.getClassId())))
-                        .thenComparing(assignment -> subjectName(subjects.get(assignment.getSubjectId()))))
-                .map(assignment -> {
-                    ClassEntity clazz = classes.get(assignment.getClassId());
-                    SubjectEntity subject = subjects.get(assignment.getSubjectId());
-                    return new TeacherDashboardResponse.ManagedClass(
-                            assignment.getClassId().toString(),
-                            clazz == null ? null : clazz.getName(),
-                            "Gi\u1EA3ng d\u1EA1y",
-                            subject == null ? null : subject.getName(),
-                            userRepository.countByClassId(assignment.getClassId()));
-                })
-                .toList();
-    }
-
-    private Optional<TeacherDashboardResponse.HomeroomClass> homeroomClass(
-            List<ClassTeacherAssignmentEntity> homeroomAssignments,
-            Map<UUID, ClassEntity> classes) {
-        return homeroomAssignments.stream()
-                .findFirst()
-                .map(assignment -> {
-                    ClassEntity clazz = classes.get(assignment.getClassId());
-                    return new TeacherDashboardResponse.HomeroomClass(
-                            assignment.getClassId().toString(),
-                            clazz == null ? null : clazz.getName(),
-                            "Gi\u00E1o vi\u00EAn ch\u1EE7 nhi\u1EC7m",
-                            userRepository.countByClassId(assignment.getClassId()));
-                });
-    }
-
-    private long pendingApplications(List<ClassTeacherAssignmentEntity> homeroomAssignments) {
-        Set<UUID> homeroomClassIds = homeroomAssignments.stream()
-                .map(ClassTeacherAssignmentEntity::getClassId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        if (homeroomClassIds.isEmpty()) {
-            return 0;
-        }
-        List<UUID> studentIds = userRepository.findByClassIdIn(homeroomClassIds).stream()
-                .map(UserEntity::getId)
-                .toList();
-        if (studentIds.isEmpty()) {
-            return 0;
-        }
-        return requestRepository.countByStudentIdInAndStatusIn(
-                studentIds,
-                List.of(StudentRequestStatus.SUBMITTED, StudentRequestStatus.PROCESSING));
-    }
-
-    private List<TeacherDashboardResponse.UpcomingExam> upcomingExams(
-            List<TeachingAssignmentEntity> assignments,
-            Map<UUID, ClassEntity> classes,
-            Map<UUID, SubjectEntity> subjects) {
-        if (assignments.isEmpty()) {
-            return List.of();
-        }
-        Set<UUID> classIds = assignments.stream()
-                .map(TeachingAssignmentEntity::getClassId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<UUID> subjectIds = assignments.stream()
-                .map(TeachingAssignmentEntity::getSubjectId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        Set<String> assignmentPairs = assignmentPairs(assignments);
-        return examRepository
-                .findByClassIdInAndSubjectIdInAndExamDateGreaterThanEqualOrderByExamDateAscStartTimeAsc(
-                        classIds,
-                        subjectIds,
-                        LocalDate.now(DASHBOARD_ZONE))
-                .stream()
-                .filter(exam -> assignmentPairs.contains(pair(exam.getClassId(), exam.getSubjectId())))
-                .limit(5)
-                .map(exam -> toUpcomingExam(exam, classes.get(exam.getClassId()), subjects.get(exam.getSubjectId())))
-                .toList();
-    }
-
-    private TeacherDashboardResponse.UpcomingExam toUpcomingExam(
-            ExamEntity exam,
-            ClassEntity clazz,
-            SubjectEntity subject) {
-        return new TeacherDashboardResponse.UpcomingExam(
-                exam.getTitle(),
-                clazz == null ? null : clazz.getName(),
-                subject == null ? null : subject.getName(),
-                exam.getExamDate().format(DATE_FORMATTER));
     }
 
     private List<TeacherDashboardResponse.RecentNotification> recentNotifications(UUID userId) {
@@ -258,62 +96,173 @@ public class TeacherDashboardService {
                 notification.getNotificationType());
     }
 
-    private List<TeacherDashboardResponse.Task> tasks(long pendingApplications, int upcomingExamCount) {
-        List<TeacherDashboardResponse.Task> tasks = new ArrayList<>();
-        if (pendingApplications > 0) {
-            tasks.add(new TeacherDashboardResponse.Task(
-                    "X\u1EED l\u00FD \u0111\u01A1n h\u1ECDc sinh",
-                    "C\u00F3 \u0111\u01A1n c\u1EA7n gi\u00E1o vi\u00EAn ch\u1EE7 nhi\u1EC7m xem x\u00E9t.",
-                    pendingApplications,
-                    "APPLICATION"));
-        }
-        if (upcomingExamCount > 0) {
-            tasks.add(new TeacherDashboardResponse.Task(
-                    "Theo d\u00F5i l\u1ECBch ki\u1EC3m tra",
-                    "C\u00F3 l\u1ECBch ki\u1EC3m tra s\u1EAFp t\u1EDBi cho l\u1EDBp ph\u1EE5 tr\u00E1ch.",
-                    upcomingExamCount,
-                    "EXAM"));
-        }
-        return tasks;
-    }
-
     private Optional<SemesterEntity> currentSemester() {
         return schoolYearRepository.findByCurrentTrue()
-                .flatMap(schoolYear -> semesterRepository.findBySchoolYearIdAndCurrentTrue(schoolYear.getId()));
+                .map(SchoolYearEntity::getId)
+                .flatMap(semesterRepository::findBySchoolYearIdAndCurrentTrue);
     }
 
-    private Set<String> assignmentPairs(List<TeachingAssignmentEntity> assignments) {
-        return assignments.stream()
-                .map(assignment -> pair(assignment.getClassId(), assignment.getSubjectId()))
-                .collect(Collectors.toSet());
+    private List<ClassEntity> classesForEntries(
+            List<TimetableEntryEntity> entries,
+            List<ClassEntity> homeroomClasses) {
+        List<UUID> classIds = entries.stream()
+                .map(TimetableEntryEntity::getClassId)
+                .collect(Collectors.toSet())
+                .stream()
+                .toList();
+        Map<UUID, ClassEntity> classes = classRepository.findAllById(classIds).stream()
+                .collect(Collectors.toMap(ClassEntity::getId, Function.identity()));
+        homeroomClasses.forEach(schoolClass -> classes.putIfAbsent(schoolClass.getId(), schoolClass));
+        return classes.values().stream()
+                .sorted(java.util.Comparator.comparing(ClassEntity::getName))
+                .toList();
     }
 
-    private String pair(UUID classId, UUID subjectId) {
-        return classId + ":" + subjectId;
+    private List<SubjectEntity> subjectsForEntries(List<TimetableEntryEntity> entries) {
+        return subjectRepository.findAllById(entries.stream()
+                        .map(TimetableEntryEntity::getSubjectId)
+                        .collect(Collectors.toSet()))
+                .stream()
+                .toList();
     }
 
-    private String subjectClientId(UUID subjectId, SubjectEntity subject) {
-        if (subject != null && subject.getCode() != null && !subject.getCode().isBlank()) {
-            return subject.getCode().toLowerCase(java.util.Locale.ROOT);
+    private List<TeacherDashboardResponse.TodayClass> todayClasses(
+            TeacherProfileEntity teacher,
+            Optional<SemesterEntity> currentSemester,
+            List<ClassEntity> classes,
+            List<SubjectEntity> subjects) {
+        if (currentSemester.isEmpty()) {
+            return List.of();
         }
-        return subjectId.toString();
+
+        short dayOfWeek = (short) LocalDate.now().getDayOfWeek().getValue();
+        Map<UUID, ClassEntity> classById = classes.stream()
+                .collect(Collectors.toMap(ClassEntity::getId, Function.identity()));
+        Map<UUID, SubjectEntity> subjectById = subjects.stream()
+                .collect(Collectors.toMap(SubjectEntity::getId, Function.identity()));
+
+        return timetableEntryRepository
+                .findByTeacherNameIgnoreCaseAndSemesterIdAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
+                        teacher.getFullName(), currentSemester.get().getId(), dayOfWeek)
+                .stream()
+                .map(entry -> toTodayClass(entry, classById, subjectById))
+                .toList();
     }
 
-    private String className(ClassEntity clazz) {
-        return clazz == null ? "" : clazz.getName();
+    private TeacherDashboardResponse.TodayClass toTodayClass(
+            TimetableEntryEntity entry,
+            Map<UUID, ClassEntity> classById,
+            Map<UUID, SubjectEntity> subjectById) {
+        ClassEntity schoolClass = classById.get(entry.getClassId());
+        SubjectEntity subject = subjectById.get(entry.getSubjectId());
+
+        return new TeacherDashboardResponse.TodayClass(
+                entry.getClassId().toString(),
+                schoolClass == null ? "Chưa rõ lớp" : schoolClass.getName(),
+                entry.getSubjectId().toString(),
+                subject == null ? "Chưa rõ môn" : subject.getName(),
+                entry.getRoomName(),
+                entry.getStartTime() + " - " + entry.getEndTime(),
+                "Theo thời khóa biểu");
     }
 
-    private String subjectName(SubjectEntity subject) {
-        return subject == null ? "" : subject.getName();
+    private List<TeacherDashboardResponse.ManagedClass> managedClasses(
+            List<ClassEntity> classes,
+            List<ClassEntity> homeroomClasses,
+            List<SubjectEntity> subjects) {
+        String subjectName = subjects.stream()
+                .findFirst()
+                .map(SubjectEntity::getName)
+                .orElse("Theo phân công");
+
+        return classes.stream()
+                .map(schoolClass -> new TeacherDashboardResponse.ManagedClass(
+                        schoolClass.getId().toString(),
+                        schoolClass.getName(),
+                        homeroomClasses.stream().anyMatch(item -> item.getId().equals(schoolClass.getId()))
+                                ? "Chủ nhiệm"
+                                : "Giảng dạy",
+                        subjectName,
+                        userRepository.countByClassId(schoolClass.getId())))
+                .toList();
     }
 
-    private <T> Map<UUID, T> entityMap(Iterable<T> entities, Function<T, UUID> idExtractor) {
-        return stream(entities).collect(Collectors.toMap(idExtractor, Function.identity()));
+    private TeacherDashboardResponse.HomeroomClass toHomeroomClass(ClassEntity schoolClass) {
+        return new TeacherDashboardResponse.HomeroomClass(
+                schoolClass.getId().toString(),
+                schoolClass.getName(),
+                "Chủ nhiệm",
+                userRepository.countByClassId(schoolClass.getId()));
     }
 
-    private <T> java.util.stream.Stream<T> stream(Iterable<T> values) {
-        return values instanceof Collection<T> collection
-                ? collection.stream()
-                : java.util.stream.StreamSupport.stream(values.spliterator(), false);
+    private long pendingApplications(List<ClassEntity> homeroomClasses) {
+        List<UUID> studentIds = userRepository.findByClassIdIn(homeroomClasses.stream()
+                        .map(ClassEntity::getId)
+                        .collect(Collectors.toSet()))
+                .stream()
+                .map(user -> user.getId())
+                .toList();
+
+        if (studentIds.isEmpty()) {
+            return 0;
+        }
+
+        return studentRequestRepository.countByStudentIdInAndStatusIn(
+                studentIds, List.of(com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus.SUBMITTED));
+    }
+
+    private List<TeacherDashboardResponse.UpcomingExam> upcomingExams(
+            List<ClassEntity> classes,
+            List<SubjectEntity> subjects) {
+        if (classes.isEmpty() || subjects.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, ClassEntity> classById = classes.stream()
+                .collect(Collectors.toMap(ClassEntity::getId, Function.identity()));
+        Map<UUID, SubjectEntity> subjectById = subjects.stream()
+                .collect(Collectors.toMap(SubjectEntity::getId, Function.identity()));
+
+        return examRepository
+                .findByClassIdInAndSubjectIdInAndExamDateGreaterThanEqualOrderByExamDateAscStartTimeAsc(
+                        ids(classes), ids(subjects), LocalDate.now())
+                .stream()
+                .limit(5)
+                .map(exam -> toUpcomingExam(exam, classById, subjectById))
+                .toList();
+    }
+
+    private TeacherDashboardResponse.UpcomingExam toUpcomingExam(
+            ExamEntity exam,
+            Map<UUID, ClassEntity> classById,
+            Map<UUID, SubjectEntity> subjectById) {
+        return new TeacherDashboardResponse.UpcomingExam(
+                exam.getTitle(),
+                Optional.ofNullable(classById.get(exam.getClassId())).map(ClassEntity::getName).orElse("Chưa rõ lớp"),
+                Optional.ofNullable(subjectById.get(exam.getSubjectId())).map(SubjectEntity::getName).orElse("Chưa rõ môn"),
+                DateTimeFormatter.ofPattern("dd/MM/yyyy").format(exam.getExamDate()));
+    }
+
+    private List<TeacherDashboardResponse.Task> tasks(UUID userId, List<ClassEntity> homeroomClasses) {
+        long unreadNotifications = notificationRepository.countByUserIdAndReadFalse(userId);
+        long pendingRequests = pendingApplications(homeroomClasses);
+
+        return java.util.stream.Stream.of(
+                        new TeacherDashboardResponse.Task(
+                                "Thông báo chưa đọc",
+                                "Các thông báo mới từ hệ thống",
+                                unreadNotifications,
+                                "NOTIFICATION"),
+                        new TeacherDashboardResponse.Task(
+                                "Đơn từ học sinh",
+                                "Yêu cầu từ lớp chủ nhiệm đang chờ xử lý",
+                                pendingRequests,
+                                "REQUEST"))
+                .filter(task -> task.count() > 0)
+                .toList();
+    }
+
+    private Collection<UUID> ids(List<? extends com.fschool.edu.fschool_backend.infrastructure.persistence.entity.BaseEntity> entities) {
+        return entities.stream().map(com.fschool.edu.fschool_backend.infrastructure.persistence.entity.BaseEntity::getId).toList();
     }
 }

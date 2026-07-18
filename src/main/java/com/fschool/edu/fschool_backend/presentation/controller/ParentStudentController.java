@@ -144,7 +144,10 @@ public class ParentStudentController {
       @PathVariable String studentId,
       @RequestBody(required = false) CreateStudentRequestRequest request) {
     UUID resolvedStudentId = requireLinkedStudentId(authentication, studentId);
-    CreateStudentRequestResponse response = studentRequestService.createStudentRequest(resolvedStudentId, request);
+    CreateStudentRequestResponse response = studentRequestService.createStudentRequest(
+        resolvedStudentId,
+        currentUserId(authentication),
+        request);
     return ApiResponse.ok(
         new CreateStudentRequestDataResponse(response),
         "Request submitted successfully");
@@ -172,6 +175,7 @@ public class ParentStudentController {
         List.of());
     CreateStudentRequestResponse response = studentRequestService.createStudentRequest(
         resolvedStudentId,
+        currentUserId(authentication),
         request,
         attachments == null ? List.of() : attachments);
     return ApiResponse.ok(

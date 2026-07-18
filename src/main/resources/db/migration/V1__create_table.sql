@@ -79,6 +79,7 @@ CREATE TABLE users
         REFERENCES classes (id)
             ON DELETE SET NULL,
     phone          VARCHAR(20)  NOT NULL UNIQUE,
+    username       VARCHAR(50),
     password_hash  VARCHAR(255) NOT NULL,
     student_code   VARCHAR(20)  UNIQUE,
     full_name      VARCHAR(150) NOT NULL,
@@ -165,51 +166,6 @@ CREATE TABLE timetable_entries
             )
 );
 
-CREATE TABLE teaching_assignments
-(
-    id          UUID PRIMARY KEY     DEFAULT gen_random_uuid(),
-    teacher_id UUID        NOT NULL
-        REFERENCES teacher_profiles (id)
-            ON DELETE CASCADE,
-    class_id   UUID        NOT NULL
-        REFERENCES classes (id)
-            ON DELETE CASCADE,
-    subject_id UUID        NOT NULL
-        REFERENCES subjects (id)
-            ON DELETE RESTRICT,
-    semester_id UUID
-        REFERENCES semesters (id)
-            ON DELETE CASCADE,
-    is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_teaching_assignment
-        UNIQUE (teacher_id, class_id, subject_id, semester_id)
-);
-
-CREATE TABLE class_teacher_assignments
-(
-    id          UUID PRIMARY KEY     DEFAULT gen_random_uuid(),
-    teacher_id UUID        NOT NULL
-        REFERENCES teacher_profiles (id)
-            ON DELETE CASCADE,
-    class_id   UUID        NOT NULL
-        REFERENCES classes (id)
-            ON DELETE CASCADE,
-    role        VARCHAR(50) NOT NULL
-        CHECK (role IN (
-                        'HOMEROOM_TEACHER',
-                        'ASSISTANT_HOMEROOM_TEACHER'
-            )),
-    is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_class_teacher_assignment
-        UNIQUE (teacher_id, class_id, role)
-);
-
 CREATE TABLE grades
 (
     id              UUID PRIMARY KEY       DEFAULT gen_random_uuid(),
@@ -228,8 +184,7 @@ CREATE TABLE grades
         CHECK (grade_type IN (
                               'REGULAR',
                               'MIDTERM',
-                              'FINAL',
-                              'ASSIGNMENT'
+                              'FINAL'
             )),
     score           NUMERIC(4, 2),
     weight          NUMERIC(4, 2) NOT NULL DEFAULT 1
@@ -249,33 +204,6 @@ CREATE TABLE grades
                     AND score <= max_score
                 )
             )
-);
-
-CREATE TABLE assignments
-(
-    id             UUID PRIMARY KEY      DEFAULT gen_random_uuid(),
-    class_id       UUID         NOT NULL
-        REFERENCES classes (id)
-            ON DELETE CASCADE,
-    subject_id     UUID         NOT NULL
-        REFERENCES subjects (id)
-            ON DELETE RESTRICT,
-    semester_id    UUID         NOT NULL
-        REFERENCES semesters (id)
-            ON DELETE CASCADE,
-    title          VARCHAR(200) NOT NULL,
-    description    TEXT,
-    teacher_name   VARCHAR(150),
-    attachment_url TEXT,
-    due_at         TIMESTAMPTZ,
-    status         VARCHAR(20)  NOT NULL DEFAULT 'PUBLISHED'
-        CHECK (status IN (
-                          'DRAFT',
-                          'PUBLISHED',
-                          'CLOSED'
-            )),
-    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 CREATE TABLE exams
@@ -305,24 +233,6 @@ CREATE TABLE exams
     note             VARCHAR(255),
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
-);
-
-CREATE TABLE news_posts
-(
-    id            UUID PRIMARY KEY      DEFAULT gen_random_uuid(),
-    title         VARCHAR(255) NOT NULL,
-    summary       TEXT,
-    content       TEXT         NOT NULL,
-    thumbnail_url TEXT,
-    status        VARCHAR(20)  NOT NULL DEFAULT 'DRAFT'
-        CHECK (status IN (
-                          'DRAFT',
-                          'PUBLISHED',
-                          'ARCHIVED'
-            )),
-    published_at  TIMESTAMPTZ,
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 CREATE TABLE notifications
@@ -418,11 +328,7 @@ CREATE TABLE student_requests
     title          VARCHAR(200) NOT NULL,
     status         VARCHAR(20)  NOT NULL DEFAULT 'SUBMITTED'
         CHECK (status IN (
-                          'SUBMITTED',
-                          'PROCESSING',
-                          'APPROVED',
-                          'REJECTED',
-                          'CANCELLED'
+                          'SUBMITTED'
             )),
     form_data      JSONB        NOT NULL DEFAULT '{}'::jsonb,
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -456,11 +362,7 @@ CREATE TABLE request_histories
             ON DELETE CASCADE,
     status     VARCHAR(20) NOT NULL
         CHECK (status IN (
-                          'SUBMITTED',
-                          'PROCESSING',
-                          'APPROVED',
-                          'REJECTED',
-                          'CANCELLED'
+                          'SUBMITTED'
             )),
     note       VARCHAR(500),
     created_by UUID
@@ -531,6 +433,10 @@ CREATE INDEX idx_users_class
 CREATE INDEX idx_users_role
     ON users (role);
 
+CREATE UNIQUE INDEX uq_users_username_lower
+    ON users (lower(username))
+    WHERE username IS NOT NULL;
+
 CREATE INDEX idx_teacher_profiles_user
     ON teacher_profiles (user_id);
 
@@ -542,15 +448,6 @@ CREATE INDEX idx_timetable_class_semester_day
                           period_no
         );
 
-CREATE INDEX idx_teaching_assignments_teacher
-    ON teaching_assignments (teacher_id, is_active);
-
-CREATE INDEX idx_teaching_assignments_class_subject
-    ON teaching_assignments (class_id, subject_id, is_active);
-
-CREATE INDEX idx_class_teacher_assignments_teacher_role
-    ON class_teacher_assignments (teacher_id, role, is_active);
-
 CREATE INDEX idx_grades_user_semester
     ON grades (
                user_id,
@@ -558,22 +455,10 @@ CREATE INDEX idx_grades_user_semester
                assessment_date DESC
         );
 
-CREATE INDEX idx_assignments_class_due
-    ON assignments (
-                    class_id,
-                    due_at
-        );
-
 CREATE INDEX idx_exams_class_date
     ON exams (
               class_id,
               exam_date
-        );
-
-CREATE INDEX idx_news_status_published
-    ON news_posts (
-                   status,
-                   published_at DESC
         );
 
 CREATE INDEX idx_notifications_user_read

@@ -167,19 +167,23 @@ public class StudentRequestService {
     }
 
     @Transactional
-    public CreateStudentRequestResponse createStudentRequest(UUID studentId, CreateStudentRequestRequest request) {
-        return createStudentRequest(studentId, request, List.of());
+    public CreateStudentRequestResponse createStudentRequest(
+            UUID studentId,
+            UUID submittedBy,
+            CreateStudentRequestRequest request) {
+        return createStudentRequest(studentId, submittedBy, request, List.of());
     }
 
     @Transactional
     public CreateStudentRequestResponse createStudentRequest(
             UUID studentId,
+            UUID submittedBy,
             CreateStudentRequestRequest request,
             List<MultipartFile> attachmentFiles) {
         RequestTypeEntity requestType = validateCreateRequest(request, attachmentFiles);
         Map<String, Object> formData = buildFormData(request);
         List<UploadedFileEntity> attachments = new ArrayList<>(resolveAttachments(request.attachmentIds()));
-        attachments.addAll(storeAttachments(studentId, attachmentFiles));
+        attachments.addAll(storeAttachments(submittedBy, attachmentFiles));
 
         StudentRequestEntity requestEntity = new StudentRequestEntity();
         requestEntity.setRequestNumber(generateRequestNumber());
@@ -196,8 +200,8 @@ public class StudentRequestService {
         historyRepository.save(toHistory(
                 savedRequest.getId(),
                 StudentRequestStatus.SUBMITTED,
-                "Student submitted request",
-                studentId));
+                "Parent submitted request",
+                submittedBy));
 
         return new CreateStudentRequestResponse(
                 savedRequest.getRequestNumber(),
@@ -391,7 +395,7 @@ public class StudentRequestService {
         }
     }
 
-    private List<UploadedFileEntity> storeAttachments(UUID studentId, List<MultipartFile> attachmentFiles) {
+    private List<UploadedFileEntity> storeAttachments(UUID uploadedBy, List<MultipartFile> attachmentFiles) {
         List<MultipartFile> files = normalizedAttachmentFiles(attachmentFiles);
         if (files.isEmpty()) {
             return List.of();
@@ -404,12 +408,12 @@ public class StudentRequestService {
         }
         List<UploadedFileEntity> storedFiles = new ArrayList<>();
         for (MultipartFile file : files) {
-            storedFiles.add(storeAttachment(studentId, file));
+            storedFiles.add(storeAttachment(uploadedBy, file));
         }
         return storedFiles;
     }
 
-    private UploadedFileEntity storeAttachment(UUID studentId, MultipartFile file) {
+    private UploadedFileEntity storeAttachment(UUID uploadedBy, MultipartFile file) {
         String extension = fileExtension(file.getOriginalFilename())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Attachment file type is not supported"));
         String fileCode = generateFileCode();
@@ -432,7 +436,7 @@ public class StudentRequestService {
         uploadedFile.setMimeType(contentType(file, extension));
         uploadedFile.setSize(file.getSize());
         uploadedFile.setPurpose("STUDENT_REQUEST");
-        uploadedFile.setUploadedBy(studentId);
+        uploadedFile.setUploadedBy(uploadedBy);
         return uploadedFileRepository.save(uploadedFile);
     }
 
@@ -747,7 +751,7 @@ public class StudentRequestService {
 
     private String canonicalRequestTypeDescription(RequestTypeEntity requestType) {
         return switch (canonicalRequestTypeCode(requestType)) {
-            case "absence" -> "G\u1eedi \u0111\u01a1n ngh\u1ec9 h\u1ecdc c\u00f3 ph\u00e9p cho gi\u00e1o vi\u00ean ch\u1ee7 nhi\u1ec7m.";
+            case "absence" -> "Ph\u1ee5 huynh g\u1eedi \u0111\u01a1n ngh\u1ec9 h\u1ecdc c\u00f3 ph\u00e9p cho h\u1ecdc sinh.";
             case "confirmation" -> "Y\u00eau c\u1ea7u x\u00e1c nh\u1eadn th\u00f4ng tin h\u1ecdc sinh \u0111ang theo h\u1ecdc.";
             default -> requestType.getDescription();
         };
@@ -870,10 +874,6 @@ public class StudentRequestService {
     private String statusLabel(StudentRequestStatus status) {
         return switch (status) {
             case SUBMITTED -> "\u0110\u00e3 g\u1eedi";
-            case PROCESSING -> "\u0110ang x\u1eed l\u00fd";
-            case APPROVED -> "\u0110\u00e3 duy\u1ec7t";
-            case REJECTED -> "T\u1eeb ch\u1ed1i";
-            case CANCELLED -> "\u0110\u00e3 h\u1ee7y";
         };
     }
 

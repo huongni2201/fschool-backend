@@ -10,6 +10,10 @@ public interface TimetableEntryJpaRepository extends JpaRepository<TimetableEntr
     List<TimetableEntryEntity> findByClassIdAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(UUID classId, UUID semesterId);
     List<TimetableEntryEntity> findByClassIdAndSemesterIdAndDayOfWeekOrderByPeriodNoAsc(
             UUID classId, UUID semesterId, Short dayOfWeek);
+    List<TimetableEntryEntity> findByTeacherNameIgnoreCaseAndSemesterIdAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
+            String teacherName, UUID semesterId, Short dayOfWeek);
+    List<TimetableEntryEntity> findByTeacherNameIgnoreCaseAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(
+            String teacherName, UUID semesterId);
     List<TimetableEntryEntity> findByClassIdInAndSemesterIdAndSubjectIdInAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
             Collection<UUID> classIds,
             UUID semesterId,

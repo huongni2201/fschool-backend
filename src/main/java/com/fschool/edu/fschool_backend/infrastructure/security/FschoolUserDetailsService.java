@@ -19,11 +19,11 @@ public class FschoolUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        UserEntity user = userRepository.findByPhone(username)
+        UserEntity user = userRepository.findByPhoneOrUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User was not found"));
         return CustomUserDetails.builder()
                 .id(user.getId())
-                .username(user.getPhone())
+                .username(user.getUsername() == null ? user.getPhone() : user.getUsername())
                 .password(user.getPasswordHash())
                 .role(roleCode(user))
                 .status(user.getStatus())

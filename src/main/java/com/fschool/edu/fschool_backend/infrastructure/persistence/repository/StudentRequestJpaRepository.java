@@ -4,6 +4,7 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.Student
 import com.fschool.edu.fschool_backend.domain.enums.StudentRequestStatus;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -21,4 +22,8 @@ public interface StudentRequestJpaRepository
     long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(Instant startInclusive, Instant endExclusive);
 
     long countByStudentIdInAndStatusIn(Collection<UUID> studentIds, Collection<StudentRequestStatus> statuses);
+
+    long countByStatus(StudentRequestStatus status);
+
+    List<StudentRequestEntity> findTop5ByOrderByCreatedAtDesc();
 }
