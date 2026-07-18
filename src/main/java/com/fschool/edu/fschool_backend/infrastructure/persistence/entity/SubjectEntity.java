@@ -1,7 +1,10 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.entity;
 
+import com.fschool.edu.fschool_backend.domain.enums.SubjectStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -25,4 +28,14 @@ public class SubjectEntity extends AuditableEntity {
 
     @Column(name = "is_score_based", nullable = false)
     private Boolean scoreBased = true;
+
+    @Column(name = "grade_levels", nullable = false, length = 20)
+    private String gradeLevels = "10,11,12";
+
+    @Column(name = "lessons_per_week", nullable = false)
+    private Short lessonsPerWeek = 0;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private SubjectStatus status = SubjectStatus.ACTIVE;
 }

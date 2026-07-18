@@ -25,10 +25,34 @@ public interface UserJpaRepository extends JpaRepository<UserEntity, UUID> {
             select count(u)
             from UserEntity u
             where u.role.code = :roleCode
-            """)
+    """)
     long countByRoleCode(@Param("roleCode") String roleCode);
     long countByClassId(UUID classId);
+    @Query("""
+            select count(u)
+            from UserEntity u
+            where u.classId = :classId
+              and u.role.code = 'STUDENT'
+            """)
+    long countStudentsByClassId(@Param("classId") UUID classId);
     List<UserEntity> findByClassIdIn(Collection<UUID> classIds);
     List<UserEntity> findByGuardianPhone(String guardianPhone);
     List<UserEntity> findByGuardianPhoneIn(Collection<String> guardianPhones);
+
+    @Query("""
+            select u
+            from UserEntity u
+            where u.classId = :classId
+              and u.role.code = 'STUDENT'
+              and (
+                  :search is null
+                  or :search = ''
+                  or lower(u.fullName) like lower(concat('%', :search, '%'))
+                  or lower(u.studentCode) like lower(concat('%', :search, '%'))
+              )
+            order by u.fullName asc, u.studentCode asc
+            """)
+    List<UserEntity> findStudentsByClassIdAndSearch(
+            @Param("classId") UUID classId,
+            @Param("search") String search);
 }

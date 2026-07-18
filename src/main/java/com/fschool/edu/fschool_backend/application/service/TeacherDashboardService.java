@@ -48,6 +48,7 @@ public class TeacherDashboardService {
     private final ExamJpaRepository examRepository;
     private final UserJpaRepository userRepository;
     private final StudentRequestJpaRepository studentRequestRepository;
+    private final TeacherGradeAccessService teacherGradeAccessService;
 
     @Transactional(readOnly = true)
     public TeacherDashboardResponse getDashboard(UUID userId) {
@@ -55,11 +56,9 @@ public class TeacherDashboardService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Teacher profile not found"));
         Optional<SemesterEntity> currentSemester = currentSemester();
         List<TimetableEntryEntity> semesterEntries = currentSemester
-                .map(semester -> timetableEntryRepository
-                        .findByTeacherNameIgnoreCaseAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(
-                                teacher.getFullName(), semester.getId()))
+                .map(semester -> teacherSemesterEntries(teacher, semester))
                 .orElseGet(List::of);
-        List<ClassEntity> homeroomClasses = classRepository.findByHomeroomTeacherNameIgnoreCase(teacher.getFullName());
+        List<ClassEntity> homeroomClasses = teacherGradeAccessService.homeroomClasses(teacher);
         List<ClassEntity> managedClasses = classesForEntries(semesterEntries, homeroomClasses);
         List<SubjectEntity> subjects = subjectsForEntries(semesterEntries);
 
@@ -141,12 +140,34 @@ public class TeacherDashboardService {
         Map<UUID, SubjectEntity> subjectById = subjects.stream()
                 .collect(Collectors.toMap(SubjectEntity::getId, Function.identity()));
 
-        return timetableEntryRepository
-                .findByTeacherNameIgnoreCaseAndSemesterIdAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
-                        teacher.getFullName(), currentSemester.get().getId(), dayOfWeek)
+        return teacherDayEntries(teacher, currentSemester.get(), dayOfWeek)
                 .stream()
                 .map(entry -> toTodayClass(entry, classById, subjectById))
                 .toList();
+    }
+
+    private List<TimetableEntryEntity> teacherSemesterEntries(TeacherProfileEntity teacher, SemesterEntity semester) {
+        List<TimetableEntryEntity> entries = timetableEntryRepository
+                .findByTeacherIdAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(teacher.getUserId(), semester.getId());
+        if (!entries.isEmpty()) {
+            return entries;
+        }
+        return timetableEntryRepository.findByTeacherNameIgnoreCaseAndSemesterIdOrderByDayOfWeekAscPeriodNoAsc(
+                teacher.getFullName(), semester.getId());
+    }
+
+    private List<TimetableEntryEntity> teacherDayEntries(
+            TeacherProfileEntity teacher,
+            SemesterEntity semester,
+            short dayOfWeek) {
+        List<TimetableEntryEntity> entries = timetableEntryRepository
+                .findByTeacherIdAndSemesterIdAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
+                        teacher.getUserId(), semester.getId(), dayOfWeek);
+        if (!entries.isEmpty()) {
+            return entries;
+        }
+        return timetableEntryRepository.findByTeacherNameIgnoreCaseAndSemesterIdAndDayOfWeekOrderByStartTimeAscPeriodNoAsc(
+                teacher.getFullName(), semester.getId(), dayOfWeek);
     }
 
     private TeacherDashboardResponse.TodayClass toTodayClass(

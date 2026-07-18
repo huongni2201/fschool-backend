@@ -1,6 +1,8 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.repository;
 
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.GradeEntity;
+import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,4 +12,9 @@ public interface GradeJpaRepository extends JpaRepository<GradeEntity, UUID> {
     List<GradeEntity> findByUserIdAndSemesterIdInOrderByAssessmentDateDesc(UUID userId, List<UUID> semesterIds);
     List<GradeEntity> findByUserIdAndSubjectIdAndSemesterIdInOrderByAssessmentDateAsc(
             UUID userId, UUID subjectId, List<UUID> semesterIds);
+
+    List<GradeEntity> findByUserIdInAndSemesterIdAndSubjectId(
+            Collection<UUID> userIds, UUID semesterId, UUID subjectId);
+
+    long countByAssessmentDate(LocalDate assessmentDate);
 }

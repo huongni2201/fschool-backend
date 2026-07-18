@@ -27,6 +27,7 @@ dependencies {
 	implementation("org.springframework.security:spring-security-crypto")
 	implementation("com.fasterxml.jackson.core:jackson-databind")
 	implementation("com.nimbusds:nimbus-jose-jwt:10.9.1")
+	implementation("org.apache.poi:poi-ooxml:5.4.1")
 	implementation("org.flywaydb:flyway-database-postgresql")
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("org.postgresql:postgresql")

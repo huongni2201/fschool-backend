@@ -9,6 +9,8 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SchoolY
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SemesterEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.StudentRequestEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SubjectEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UploadedFileEntity;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UserEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ExamJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.GradeJpaRepository;
@@ -18,9 +20,16 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.Sem
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.StudentRequestJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SubjectJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TeacherProfileJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UploadedFileJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
 import com.fschool.edu.fschool_backend.presentation.dto.response.AdminDashboardResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.AdminDashboardSummaryResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.AdminRecentImportResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.AdminRecentNotificationResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.AdminWeeklyActivityResponse;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
@@ -31,6 +40,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +60,7 @@ public class AdminDashboardService {
     private final GradeJpaRepository gradeRepository;
     private final ExamJpaRepository examRepository;
     private final SubjectJpaRepository subjectRepository;
+    private final UploadedFileJpaRepository uploadedFileRepository;
     private final SchoolYearJpaRepository schoolYearRepository;
     private final SemesterJpaRepository semesterRepository;
 
@@ -69,6 +81,71 @@ public class AdminDashboardService {
                 gradeRepository.count(),
                 upcomingEvents(),
                 recentActivities());
+    }
+
+    @Transactional(readOnly = true)
+    public AdminDashboardSummaryResponse getSummary() {
+        return new AdminDashboardSummaryResponse(
+                userRepository.countByRoleCode(RoleCodes.STUDENT),
+                teacherProfileRepository.count(),
+                classRepository.count(),
+                subjectRepository.count());
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminRecentNotificationResponse> getRecentNotifications(int limit) {
+        return notificationRepository.findByOrderByCreatedAtDesc(pageable(limit)).stream()
+                .map(notification -> new AdminRecentNotificationResponse(
+                        notification.getId(),
+                        notification.getTitle(),
+                        notification.getNotificationType(),
+                        notification.getCreatedAt()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminWeeklyActivityResponse> getWeeklyActivity(LocalDate from, LocalDate to) {
+        LocalDate endDate = to == null ? LocalDate.now() : to;
+        LocalDate startDate = from == null ? endDate.minusDays(6) : from;
+        if (startDate.isAfter(endDate)) {
+            LocalDate swap = startDate;
+            startDate = endDate;
+            endDate = swap;
+        }
+
+        return startDate.datesUntil(endDate.plusDays(1))
+                .map(date -> new AdminWeeklyActivityResponse(
+                        date,
+                        0,
+                        gradeRepository.countByAssessmentDate(date),
+                        notificationRepository.countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                                startOfDay(date),
+                                startOfDay(date.plusDays(1)))))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AdminRecentImportResponse> getRecentImports(int limit) {
+        List<UploadedFileEntity> files =
+                uploadedFileRepository.findByPurposeNotOrderByCreatedAtDesc("STUDENT_REQUEST", pageable(limit));
+        Map<UUID, String> usersById = userRepository.findAllById(files.stream()
+                        .map(UploadedFileEntity::getUploadedBy)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(UserEntity::getId, UserEntity::getFullName));
+
+        return files.stream()
+                .map(file -> new AdminRecentImportResponse(
+                        file.getId(),
+                        file.getFileName(),
+                        file.getPurpose(),
+                        "SUCCESS",
+                        0,
+                        0,
+                        file.getCreatedAt(),
+                        file.getUploadedBy() == null ? "System" : usersById.getOrDefault(file.getUploadedBy(), "System")))
+                .toList();
     }
 
     private List<AdminDashboardResponse.UpcomingEvent> upcomingEvents() {
@@ -124,6 +201,14 @@ public class AdminDashboardService {
                 .sorted(Comparator.comparing(AdminDashboardResponse.RecentActivity::timeLabel).reversed())
                 .limit(5)
                 .toList();
+    }
+
+    private Pageable pageable(int limit) {
+        return PageRequest.of(0, Math.max(1, Math.min(limit, 50)));
+    }
+
+    private Instant startOfDay(LocalDate date) {
+        return date.atStartOfDay(ZoneId.systemDefault()).toInstant();
     }
 
     private AdminDashboardResponse.RecentActivity toRequestActivity(StudentRequestEntity request) {

@@ -1,7 +1,10 @@
 package com.fschool.edu.fschool_backend.infrastructure.persistence.entity;
 
+import com.fschool.edu.fschool_backend.domain.enums.ClassStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import java.util.UUID;
 import lombok.Getter;
@@ -27,6 +30,13 @@ public class ClassEntity extends AuditableEntity {
     @Column(name = "homeroom_teacher_name", length = 150)
     private String homeroomTeacherName;
 
+    @Column(name = "homeroom_teacher_id")
+    private UUID homeroomTeacherId;
+
     @Column(name = "room_name", length = 50)
     private String roomName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ClassStatus status = ClassStatus.ACTIVE;
 }

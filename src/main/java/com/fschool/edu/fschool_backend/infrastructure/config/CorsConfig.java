@@ -14,15 +14,16 @@ public class CorsConfig implements WebMvcConfigurer {
 
     private final List<String> allowedOriginPatterns;
     private final String studentRequestUploadLocation;
+    private final String timetableUploadLocation;
 
     public CorsConfig(
             @Value("${app.cors.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*}")
                     List<String> allowedOriginPatterns,
-            @Value("${app.upload.student-request-dir:uploads/student-requests}") String studentRequestUploadDir) {
+            @Value("${app.upload.student-request-dir:uploads/student-requests}") String studentRequestUploadDir,
+            @Value("${app.upload.timetable-dir:uploads/timetables}") String timetableUploadDir) {
         this.allowedOriginPatterns = allowedOriginPatterns;
-        Path uploadPath = Paths.get(studentRequestUploadDir).toAbsolutePath().normalize();
-        String location = uploadPath.toUri().toString();
-        this.studentRequestUploadLocation = location.endsWith("/") ? location : location + "/";
+        this.studentRequestUploadLocation = uploadLocation(studentRequestUploadDir);
+        this.timetableUploadLocation = uploadLocation(timetableUploadDir);
     }
 
     @Override
@@ -31,7 +32,7 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(allowedOriginPatterns.toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .exposedHeaders("Authorization")
+                .exposedHeaders("Authorization", "Content-Disposition")
                 .allowCredentials(true);
     }
 
@@ -39,5 +40,13 @@ public class CorsConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/uploads/student-requests/**")
                 .addResourceLocations(studentRequestUploadLocation);
+        registry.addResourceHandler("/uploads/timetables/**")
+                .addResourceLocations(timetableUploadLocation);
+    }
+
+    private String uploadLocation(String uploadDir) {
+        Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        String location = uploadPath.toUri().toString();
+        return location.endsWith("/") ? location : location + "/";
     }
 }

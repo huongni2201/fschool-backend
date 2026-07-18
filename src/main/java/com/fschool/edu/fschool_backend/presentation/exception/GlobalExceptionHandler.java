@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -24,6 +26,15 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiResponse<Void>> handleApiException(ApiException exception) {
         log.warn("API exception: status={}, message={}", exception.getStatus(), exception.getMessage());
         return ResponseEntity.status(exception.getStatus()).body(ApiResponse.error(exception.getMessage()));
+    }
+
+    @ExceptionHandler({
+            AccessDeniedException.class,
+            AuthorizationDeniedException.class
+    })
+    ResponseEntity<ApiResponse<Void>> handleAccessDenied(Exception exception) {
+        log.warn("Access denied: message={}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResponse.error("Forbidden"));
     }
 
     @ExceptionHandler(DomainException.class)

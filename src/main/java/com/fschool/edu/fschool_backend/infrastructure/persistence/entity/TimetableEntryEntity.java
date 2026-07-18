@@ -25,6 +25,9 @@ public class TimetableEntryEntity extends AuditableEntity {
     @Column(name = "subject_id", nullable = false)
     private UUID subjectId;
 
+    @Column(name = "teacher_id")
+    private UUID teacherId;
+
     @Column(name = "day_of_week", nullable = false)
     private Short dayOfWeek;
 

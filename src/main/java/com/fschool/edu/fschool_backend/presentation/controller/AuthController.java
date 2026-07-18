@@ -7,15 +7,20 @@ import com.fschool.edu.fschool_backend.presentation.dto.request.ResetPasswordReq
 import com.fschool.edu.fschool_backend.presentation.dto.request.SendOtpRequest;
 import com.fschool.edu.fschool_backend.presentation.dto.request.VerifyOtpRequest;
 import com.fschool.edu.fschool_backend.presentation.dto.response.ApiResponse;
+import com.fschool.edu.fschool_backend.presentation.dto.response.CurrentUserResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.LoginResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.MessageResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.RegisterResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpResponse;
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,6 +47,12 @@ public class AuthController {
     @PostMapping("/login")
     ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.ok(authService.login(request.toCommand()));
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    ApiResponse<CurrentUserResponse> me(Authentication authentication) {
+        return ApiResponse.ok(authService.currentUser(UUID.fromString(authentication.getName())));
     }
 
     @PostMapping("/register")

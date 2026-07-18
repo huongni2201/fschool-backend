@@ -20,6 +20,7 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.Use
 import com.fschool.edu.fschool_backend.infrastructure.security.CustomUserDetails;
 import com.fschool.edu.fschool_backend.infrastructure.security.JwtService;
 import com.fschool.edu.fschool_backend.infrastructure.security.ResetTokenService;
+import com.fschool.edu.fschool_backend.presentation.dto.response.CurrentUserResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.LoginResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.RegisterResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.SendOtpResponse;
@@ -101,6 +102,23 @@ public class AuthService {
                 .fullName(user.getFullName())
                 .className(className)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public CurrentUserResponse currentUser(UUID userId) {
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Unauthorized"));
+        String className = user.getClassId() == null
+                ? null
+                : classRepository.findById(user.getClassId()).map(ClassEntity::getName).orElse(null);
+        String roleCode = roleCode(user);
+        return new CurrentUserResponse(
+                user.getId(),
+                hasText(user.getUsername()) ? user.getUsername() : user.getPhone(),
+                user.getFullName(),
+                roleCode,
+                user.getStudentCode(),
+                className);
     }
 
     @Transactional
