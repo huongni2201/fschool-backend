@@ -65,7 +65,7 @@ public class TeacherDashboardService {
         return new TeacherDashboardResponse(
                 toTeacher(teacher),
                 todayClasses(teacher, currentSemester, managedClasses, subjects),
-                managedClasses(managedClasses, homeroomClasses, subjects),
+                managedClasses(managedClasses, homeroomClasses, semesterEntries, subjects),
                 homeroomClasses.stream().findFirst().map(this::toHomeroomClass).orElse(null),
                 pendingApplications(homeroomClasses),
                 upcomingExams(managedClasses, subjects),
@@ -190,11 +190,10 @@ public class TeacherDashboardService {
     private List<TeacherDashboardResponse.ManagedClass> managedClasses(
             List<ClassEntity> classes,
             List<ClassEntity> homeroomClasses,
+            List<TimetableEntryEntity> entries,
             List<SubjectEntity> subjects) {
-        String subjectName = subjects.stream()
-                .findFirst()
-                .map(SubjectEntity::getName)
-                .orElse("Theo phân công");
+        Map<UUID, SubjectEntity> subjectById = subjects.stream()
+                .collect(Collectors.toMap(SubjectEntity::getId, Function.identity()));
 
         return classes.stream()
                 .map(schoolClass -> new TeacherDashboardResponse.ManagedClass(
@@ -203,9 +202,29 @@ public class TeacherDashboardService {
                         homeroomClasses.stream().anyMatch(item -> item.getId().equals(schoolClass.getId()))
                                 ? "Chủ nhiệm"
                                 : "Giảng dạy",
-                        subjectName,
+                        managedClassSubjectName(schoolClass, homeroomClasses, entries, subjectById),
                         userRepository.countByClassId(schoolClass.getId())))
                 .toList();
+    }
+
+    private String managedClassSubjectName(
+            ClassEntity schoolClass,
+            List<ClassEntity> homeroomClasses,
+            List<TimetableEntryEntity> entries,
+            Map<UUID, SubjectEntity> subjectById) {
+        if (homeroomClasses.stream().anyMatch(item -> item.getId().equals(schoolClass.getId()))) {
+            return "T\u1EA5t c\u1EA3 m\u00F4n";
+        }
+        String subjectNames = entries.stream()
+                .filter(entry -> schoolClass.getId().equals(entry.getClassId()))
+                .map(TimetableEntryEntity::getSubjectId)
+                .distinct()
+                .map(subjectById::get)
+                .filter(java.util.Objects::nonNull)
+                .map(SubjectEntity::getName)
+                .distinct()
+                .collect(Collectors.joining(", "));
+        return subjectNames.isBlank() ? "Theo ph\u00E2n c\u00F4ng" : subjectNames;
     }
 
     private TeacherDashboardResponse.HomeroomClass toHomeroomClass(ClassEntity schoolClass) {
