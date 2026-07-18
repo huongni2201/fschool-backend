@@ -58,14 +58,12 @@ public class AdminTimetableController {
             @RequestPart("file") MultipartFile file,
             @RequestParam UUID academicYearId,
             @RequestParam UUID semesterId,
-            @RequestParam UUID classId,
-            Authentication authentication) {
+            @RequestParam UUID classId) {
         TimetableImportResponse response = timetableService.importTimetable(
                 file,
                 academicYearId,
                 semesterId,
-                classId,
-                currentUserId(authentication));
+                classId);
         return ApiResponse.ok(response, importMessage(response));
     }
 

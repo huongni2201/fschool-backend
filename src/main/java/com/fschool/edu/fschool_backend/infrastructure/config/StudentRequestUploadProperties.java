@@ -15,14 +15,8 @@ public class StudentRequestUploadProperties {
 
     private String studentRequestDir = "uploads/student-requests";
     private String studentRequestPublicPath = "/uploads/student-requests";
-    private String timetableDir = "uploads/timetables";
-    private String timetablePublicPath = "/uploads/timetables";
 
     public Path studentRequestDirPath() {
         return Paths.get(studentRequestDir).toAbsolutePath().normalize();
-    }
-
-    public Path timetableDirPath() {
-        return Paths.get(timetableDir).toAbsolutePath().normalize();
     }
 }

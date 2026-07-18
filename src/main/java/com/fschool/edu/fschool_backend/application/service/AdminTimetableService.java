@@ -1,20 +1,17 @@
 package com.fschool.edu.fschool_backend.application.service;
 
-import com.fschool.edu.fschool_backend.infrastructure.config.StudentRequestUploadProperties;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.ClassEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SchoolYearEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SemesterEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.SubjectEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TeacherProfileEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.TimetableEntryEntity;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.entity.UploadedFileEntity;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.ClassJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SchoolYearJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SemesterJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.SubjectJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TeacherProfileJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.TimetableEntryJpaRepository;
-import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UploadedFileJpaRepository;
 import com.fschool.edu.fschool_backend.presentation.dto.response.AcademicYearFilterResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.AdminTimetableResponse;
 import com.fschool.edu.fschool_backend.presentation.dto.response.ClassFilterResponse;
@@ -25,8 +22,6 @@ import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.Normalizer;
 import java.time.LocalTime;
@@ -67,10 +62,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminTimetableService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-    private static final String TIMETABLE_PURPOSE = "TIMETABLE";
     private static final String XLSX_EXTENSION = "xlsx";
-    private static final String XLSX_CONTENT_TYPE =
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     private static final long MAX_IMPORT_SIZE_BYTES = 10L * 1024L * 1024L;
     private static final String[] IMPORT_HEADERS = {
             "dayOfWeek",
@@ -89,8 +81,6 @@ public class AdminTimetableService {
     private final ClassJpaRepository classRepository;
     private final SubjectJpaRepository subjectRepository;
     private final TeacherProfileJpaRepository teacherProfileRepository;
-    private final UploadedFileJpaRepository uploadedFileRepository;
-    private final StudentRequestUploadProperties uploadProperties;
     private final TeacherGradeAccessService teacherGradeAccessService;
 
     public AdminTimetableService(
@@ -100,8 +90,6 @@ public class AdminTimetableService {
             ClassJpaRepository classRepository,
             SubjectJpaRepository subjectRepository,
             TeacherProfileJpaRepository teacherProfileRepository,
-            UploadedFileJpaRepository uploadedFileRepository,
-            StudentRequestUploadProperties uploadProperties,
             TeacherGradeAccessService teacherGradeAccessService) {
         this.timetableRepository = timetableRepository;
         this.schoolYearRepository = schoolYearRepository;
@@ -109,8 +97,6 @@ public class AdminTimetableService {
         this.classRepository = classRepository;
         this.subjectRepository = subjectRepository;
         this.teacherProfileRepository = teacherProfileRepository;
-        this.uploadedFileRepository = uploadedFileRepository;
-        this.uploadProperties = uploadProperties;
         this.teacherGradeAccessService = teacherGradeAccessService;
     }
 
@@ -252,8 +238,7 @@ public class AdminTimetableService {
             MultipartFile file,
             UUID academicYearId,
             UUID semesterId,
-            UUID classId,
-            UUID uploadedBy) {
+            UUID classId) {
         validateImportRequest(academicYearId, semesterId, classId);
         validateImportFile(file);
         byte[] fileContent = readFile(file);
@@ -276,7 +261,6 @@ public class AdminTimetableService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Timetable file does not contain data");
         }
 
-        UploadedFileEntity uploadedFile = storeTimetableFile(uploadedBy, file, fileContent);
         upsertTimetableRows(parseResult.validRows(), classId, semesterId);
 
         int failedRows = (int) parseResult.errors().stream()
@@ -284,8 +268,8 @@ public class AdminTimetableService {
                 .distinct()
                 .count();
         return new TimetableImportResponse(
-                uploadedFile.getId(),
-                uploadedFile.getFileName(),
+                UUID.randomUUID(),
+                safeOriginalFileName(file.getOriginalFilename()),
                 parseResult.totalRows(),
                 parseResult.validRows().size(),
                 failedRows,
@@ -498,32 +482,6 @@ public class AdminTimetableService {
         timetableRepository.saveAll(entities);
     }
 
-    private UploadedFileEntity storeTimetableFile(UUID uploadedBy, MultipartFile file, byte[] fileContent) {
-        String fileCode = generateFileCode();
-        String storedFileName = fileCode + "." + XLSX_EXTENSION;
-        Path timetableUploadDir = uploadProperties.timetableDirPath();
-        Path target = timetableUploadDir.resolve(storedFileName).normalize();
-        if (!target.startsWith(timetableUploadDir)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Timetable file name is invalid");
-        }
-        try {
-            Files.createDirectories(timetableUploadDir);
-            Files.write(target, fileContent);
-        } catch (IOException exception) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Cannot store timetable file");
-        }
-
-        UploadedFileEntity uploadedFile = new UploadedFileEntity();
-        uploadedFile.setFileCode(fileCode);
-        uploadedFile.setFileName(safeOriginalFileName(file.getOriginalFilename()));
-        uploadedFile.setUrl(timetableFileUrl(storedFileName));
-        uploadedFile.setMimeType(XLSX_CONTENT_TYPE);
-        uploadedFile.setSize(file.getSize());
-        uploadedFile.setPurpose(TIMETABLE_PURPOSE);
-        uploadedFile.setUploadedBy(uploadedBy);
-        return uploadedFileRepository.save(uploadedFile);
-    }
-
     private SubjectEntity findSubject(
             String subjectCode,
             Map<String, SubjectEntity> subjectsByCode) {
@@ -732,29 +690,6 @@ public class AdminTimetableService {
                 .replace('\r', '_')
                 .replace('\n', '_');
         return fileName.isBlank() ? "timetable." + XLSX_EXTENSION : fileName;
-    }
-
-    private String timetableFileUrl(String storedFileName) {
-        String publicPath = trimTrailingSlash(uploadProperties.getTimetablePublicPath());
-        if (publicPath.isBlank()) {
-            return storedFileName;
-        }
-        return publicPath + "/" + storedFileName;
-    }
-
-    private String trimTrailingSlash(String value) {
-        if (value == null) {
-            return "";
-        }
-        String trimmed = value.trim();
-        while (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed;
-    }
-
-    private String generateFileCode() {
-        return "TIMETABLE-" + UUID.randomUUID();
     }
 
     private Optional<SemesterEntity> resolveSemester(UUID academicYearId, UUID semesterId) {
