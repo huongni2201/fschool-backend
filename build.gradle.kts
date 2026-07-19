@@ -24,6 +24,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("org.springframework.boot:spring-boot-starter-mail")
 	implementation("org.springframework.security:spring-security-crypto")
 	implementation("com.fasterxml.jackson.core:jackson-databind")
 	implementation("com.nimbusds:nimbus-jose-jwt:10.9.1")

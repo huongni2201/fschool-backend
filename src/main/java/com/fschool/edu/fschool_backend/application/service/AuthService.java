@@ -17,6 +17,7 @@ import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.Cla
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.OtpChallengeJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.RoleJpaRepository;
 import com.fschool.edu.fschool_backend.infrastructure.persistence.repository.UserJpaRepository;
+import com.fschool.edu.fschool_backend.infrastructure.mail.OtpMailService;
 import com.fschool.edu.fschool_backend.infrastructure.security.CustomUserDetails;
 import com.fschool.edu.fschool_backend.infrastructure.security.JwtService;
 import com.fschool.edu.fschool_backend.infrastructure.security.ResetTokenService;
@@ -28,6 +29,7 @@ import com.fschool.edu.fschool_backend.presentation.dto.response.VerifyOtpRespon
 import com.fschool.edu.fschool_backend.presentation.exception.ApiException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
@@ -50,9 +52,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private static final Pattern OTP_PATTERN = Pattern.compile("\\d{4,8}");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final int MIN_PASSWORD_LENGTH = 6;
+    private static final int MIN_OTP_LENGTH = 4;
+    private static final int MAX_OTP_LENGTH = 8;
     private static final String PHONE_NOT_FOUND_MESSAGE =
             "S\u1ED1 \u0111i\u1EC7n tho\u1EA1i kh\u00F4ng t\u1ED3n t\u1EA1i";
+    private static final String EMAIL_NOT_FOUND_MESSAGE =
+            "T\u00E0i kho\u1EA3n ch\u01B0a c\u00F3 email \u0111\u1EC3 nh\u1EADn OTP";
     private static final String OTP_INVALID_OR_EXPIRED_MESSAGE =
             "M\u00E3 OTP kh\u00F4ng \u0111\u00FAng ho\u1EB7c \u0111\u00E3 h\u1EBFt h\u1EA1n";
     private static final String OTP_TOO_MANY_REQUESTS_MESSAGE =
@@ -69,6 +76,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final ResetTokenService resetTokenService;
     private final AuthProperties authProperties;
+    private final OtpMailService otpMailService;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional(readOnly = true)
     public LoginResponse login(LoginCommand command) {
@@ -167,17 +176,25 @@ public class AuthService {
         if (!hasText(phone)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, PHONE_NOT_FOUND_MESSAGE);
         }
-        requireUserByPhone(phone, HttpStatus.NOT_FOUND, PHONE_NOT_FOUND_MESSAGE);
+        UserEntity user = requireUserByPhone(phone, HttpStatus.NOT_FOUND, PHONE_NOT_FOUND_MESSAGE);
+        String recipientEmail = emailAddress(user)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, EMAIL_NOT_FOUND_MESSAGE));
         enforceOtpSendCooldown(phone);
 
+        String otpCode = generateOtpCode();
         OtpChallengeEntity challenge = new OtpChallengeEntity();
         challenge.setPhone(phone);
         challenge.setPurpose(OtpPurpose.FORGOT_PASSWORD);
-        challenge.setOtpHash(hash(authProperties.getDevOtpCode()));
+        challenge.setOtpHash(hash(otpCode));
         challenge.setExpiresAt(Instant.now().plusSeconds(authProperties.getOtpTtlSeconds()));
         challenge.setAttemptCount(0);
         challenge.setMaxAttempts(5);
-        OtpChallengeEntity saved = otpRepository.save(challenge);
+        OtpChallengeEntity saved = otpRepository.saveAndFlush(challenge);
+        otpMailService.sendForgotPasswordOtp(
+                recipientEmail,
+                user.getFullName(),
+                otpCode,
+                authProperties.getOtpTtlSeconds());
         return new SendOtpResponse(saved.getId(), authProperties.getOtpTtlSeconds());
     }
 
@@ -343,6 +360,31 @@ public class AuthService {
 
     private boolean hasValidOtpFormat(String otp) {
         return hasText(otp) && OTP_PATTERN.matcher(otp).matches();
+    }
+
+    private String generateOtpCode() {
+        String configuredCode = normalizeText(authProperties.getDevOtpCode());
+        if (hasText(configuredCode)) {
+            if (!hasValidOtpFormat(configuredCode)) {
+                throw new IllegalStateException("Configured dev OTP code must be 4 to 8 digits");
+            }
+            return configuredCode;
+        }
+        int length = Math.max(MIN_OTP_LENGTH, Math.min(MAX_OTP_LENGTH, authProperties.getOtpLength()));
+        int min = (int) Math.pow(10, length - 1);
+        int maxExclusive = (int) Math.pow(10, length);
+        return Integer.toString(min + secureRandom.nextInt(maxExclusive - min));
+    }
+
+    private Optional<String> emailAddress(UserEntity user) {
+        if (user == null) {
+            return Optional.empty();
+        }
+        String username = normalizeText(user.getUsername());
+        if (hasText(username) && EMAIL_PATTERN.matcher(username).matches()) {
+            return Optional.of(username);
+        }
+        return Optional.empty();
     }
 
     private String normalizePhone(String phone) {

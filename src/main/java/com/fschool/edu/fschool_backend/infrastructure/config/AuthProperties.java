@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.auth")
 public class AuthProperties {
 
-    private String devOtpCode = "123456";
+    private String devOtpCode = "";
+    private int otpLength = 6;
     private long otpTtlSeconds = 300;
     private long otpResendCooldownSeconds = 60;
 }

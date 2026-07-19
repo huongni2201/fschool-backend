@@ -64,7 +64,14 @@ CREATE TABLE classes
     grade_number          SMALLINT    NOT NULL
         CHECK (grade_number IN (10, 11, 12)),
     homeroom_teacher_name VARCHAR(150),
+    homeroom_teacher_id   UUID,
     room_name             VARCHAR(50),
+    status                VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN (
+                          'ACTIVE',
+                          'INACTIVE',
+                          'ARCHIVED'
+            )),
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -108,6 +115,12 @@ CREATE TABLE users
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+ALTER TABLE classes
+    ADD CONSTRAINT fk_classes_homeroom_teacher
+        FOREIGN KEY (homeroom_teacher_id)
+            REFERENCES users (id)
+            ON DELETE SET NULL;
+
 CREATE TABLE teacher_profiles
 (
     id              UUID PRIMARY KEY      DEFAULT gen_random_uuid(),
@@ -128,6 +141,14 @@ CREATE TABLE subjects
     name           VARCHAR(100) NOT NULL,
     subject_group  VARCHAR(50)  NOT NULL DEFAULT 'OTHER',
     is_score_based BOOLEAN      NOT NULL DEFAULT TRUE,
+    grade_levels   VARCHAR(20)  NOT NULL DEFAULT '10,11,12',
+    lessons_per_week SMALLINT   NOT NULL DEFAULT 0
+        CHECK (lessons_per_week >= 0),
+    status         VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN (
+                          'ACTIVE',
+                          'INACTIVE'
+            )),
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
@@ -144,6 +165,9 @@ CREATE TABLE timetable_entries
     subject_id   UUID        NOT NULL
         REFERENCES subjects (id)
             ON DELETE RESTRICT,
+    teacher_id   UUID
+        REFERENCES users (id)
+            ON DELETE SET NULL,
     day_of_week  SMALLINT    NOT NULL
         CHECK (day_of_week BETWEEN 1 AND 7),
     period_no    SMALLINT    NOT NULL
@@ -447,6 +471,9 @@ CREATE INDEX idx_timetable_class_semester_day
                           day_of_week,
                           period_no
         );
+
+CREATE INDEX idx_timetable_teacher_semester_day
+    ON timetable_entries (teacher_id, semester_id, day_of_week, start_time, period_no);
 
 CREATE INDEX idx_grades_user_semester
     ON grades (
